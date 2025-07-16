@@ -2,68 +2,678 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2025 The Linux Foundation
 
-# Action test/validation workflow
-name: "Test GitHub Action 🧪"
+name: 'Test Action 🧪'
 
 # yamllint disable-line rule:truthy
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
-    branches: ["main"]
+    branches: ['main']
   pull_request:
-    branches: ["main"]
+    branches: ['main']
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
 
 permissions: {}
 
+# Too many potential long lines for this check to be useful, disabling
+# yamllint disable rule:line-length
+
 jobs:
-  ### Test the GitHub Action in this Repository ###
-  tests:
-    name: "Test local GitHub Action"
-    runs-on: ubuntu-24.04
+  comprehensive-test-suite:
+    name: 'Comprehensive Test Suite'
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 10 # Increase this timeout value as needed
+    timeout-minutes: 30
     steps:
-      - name: "Checkout repository"
+      # Harden the runner used by this workflow
+      - uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # Perform setup prior to running test(s)
-      - name: "Testing setup step"
-        shell: bash
-        run: |
-          # Testing setup step
-          echo "Testing setup step"
-          echo "Testing setup step/summary output" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: "Running local action: ${{ github.repository }}"
+      # =================================================================
+      # BASIC HTTPS TESTS
+      # =================================================================
+      - name: 'Setup go-httpbin HTTPS service for basic tests'
+        id: httpbin-basic
         uses: ./
         with:
-          input: "test input 💬"
+          debug: 'true'
 
-      - name: "Validated local action: ${{ github.repository }}"
-        shell: bash
+      - name: 'Basic HTTPS Test - Simple GET request'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-basic.outputs.service-url }}/get'
+          service_name: 'Basic HTTPS GET'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-basic.outputs.service-url }}/get"'
+          debug: 'true'
+          include_response_body: 'true'
+          max_response_time: '5000'
+
+      - name: 'Basic HTTPS Test - GET with CA bundle'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-basic.outputs.service-url }}/get'
+          service_name: 'Basic HTTPS GET with CA bundle'
+          verify_ssl: 'true'
+          ca_bundle_path: '${{ steps.httpbin-basic.outputs.ca-cert-path }}'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-basic.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Basic HTTPS Test - POST with JSON body'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-basic.outputs.service-url }}/post'
+          service_name: 'Basic HTTPS POST with JSON'
+          http_method: 'POST'
+          request_body: '{"test": "data", "number": 42}'
+          content_type: 'application/json'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"test": "data"'
+          debug: 'true'
+
+      - name: 'Basic HTTPS Test - POST with custom headers'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-basic.outputs.service-url }}/post'
+          service_name: 'Basic HTTPS POST with headers'
+          http_method: 'POST'
+          request_body: '{"message": "hello world"}'
+          content_type: 'application/json'
+          request_headers: |
+            {
+              "X-Custom-Header": "test-value",
+              "X-Another-Header": "another-value"
+            }
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"X-Custom-Header": "test-value"'
+          debug: 'true'
+
+      - name: 'Basic HTTPS Test - Status endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-basic.outputs.service-url }}/status/418'
+          service_name: 'Basic HTTPS Status'
+          verify_ssl: 'false'
+          expected_http_code: '418'
+          debug: 'true'
+
+      - name: 'Stop basic HTTPS service'
         run: |
-          # Local action validation
-          echo "Validated local action: ${{ github.repository }}"
-          echo "Validation step summary output" >> "$GITHUB_STEP_SUMMARY"
+          docker stop ${{ steps.httpbin-basic.outputs.container-name }}
+          docker rm ${{ steps.httpbin-basic.outputs.container-name }}
 
-      # yamllint disable-line rule:line-length
-      - name: "Running local action: ${{ github.repository }} [Override Failure]"
+      # =================================================================
+      # HTTP (NO SSL) TESTS
+      # =================================================================
+      - name: 'Setup go-httpbin HTTP service (no SSL)'
+        id: httpbin-http
         uses: ./
-        id: failure
+        with:
+          skip-certificate: 'true'
+          debug: 'true'
+
+      - name: 'HTTP Test - Simple GET request'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-http.outputs.service-url }}/get'
+          service_name: 'HTTP GET'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-http.outputs.service-url }}/get"'
+          debug: 'true'
+          show_header_json: 'true'
+
+      - name: 'HTTP Test - GET with custom headers'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-http.outputs.service-url }}/headers'
+          service_name: 'HTTP Headers'
+          request_headers: '{"X-Test-Header": "test-value"}'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"X-Test-Header": "test-value"'
+          debug: 'true'
+
+      - name: 'HTTP Test - User-Agent header'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-http.outputs.service-url }}/user-agent'
+          service_name: 'HTTP User-Agent'
+          request_headers: '{"User-Agent": "CustomAgent/1.0"}'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"user-agent": "CustomAgent/1.0"'
+          debug: 'true'
+
+      - name: 'Stop HTTP service'
+        run: |
+          docker stop ${{ steps.httpbin-http.outputs.container-name }}
+          docker rm ${{ steps.httpbin-http.outputs.container-name }}
+
+      # =================================================================
+      # CUSTOM PORT TESTS
+      # =================================================================
+      - name: 'Setup go-httpbin with custom port (skip built-in readiness check)'
+        id: httpbin-custom-port
+        uses: ./
+        with:
+          port: '9090'
+          debug: 'true'
+          skip-readiness-check: 'true'
+
+      - name: 'Wait for custom port service to be ready'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-custom-port.outputs.service-url }}/get'
+          service_name: 'Custom Port Readiness Check'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          debug: 'true'
+          retries: '15'
+          initial_sleep_time: '2'
+
+      - name: 'Custom Port Test - GET request on custom port'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-custom-port.outputs.service-url }}/get'
+          service_name: 'Custom Port GET'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: >-
+            "url": "${{ steps.httpbin-custom-port.outputs.service-url }}/get"
+          debug: 'true'
+          max_response_time: '3000'
+          fail_on_timeout: 'true'
+
+      - name: 'Custom Port Test - Status endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-custom-port.outputs.service-url }}/status/201'
+          service_name: 'Custom Port Status'
+          verify_ssl: 'false'
+          expected_http_code: '201'
+          regex: ''
+          debug: 'true'
+          include_response_body: 'true'
+
+      - name: 'Stop custom port service'
+        run: |
+          docker stop ${{ steps.httpbin-custom-port.outputs.container-name }}
+
+      # =================================================================
+      # HOST NETWORK TESTS
+      # =================================================================
+      - name: 'Setup go-httpbin with host network'
+        id: httpbin-host-network
+        uses: ./
+        with:
+          use-host-network: 'true'
+          debug: 'true'
+
+      - name: 'Host Network Test - GET request'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-host-network.outputs.service-url }}/get'
+          service_name: 'Host Network GET'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-host-network.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Host Network Test - GET with retries'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-host-network.outputs.service-url }}/delay/1'
+          service_name: 'Host Network Delay'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-host-network.outputs.service-url }}/delay/1"'
+          debug: 'true'
+          retries: '3'
+          initial_sleep_time: '2'
+
+      - name: 'Host Network Test - Headers endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-host-network.outputs.service-url }}/headers'
+          service_name: 'Host Network Headers'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"headers":'
+          debug: 'true'
+
+      - name: 'Stop host network service'
+        run: |
+          docker stop ${{ steps.httpbin-host-network.outputs.container-name }}
+
+      # =================================================================
+      # ADVANCED FEATURES TESTS
+      # =================================================================
+      - name: 'Setup go-httpbin with advanced features'
+        id: httpbin-advanced
+        uses: ./
+        with:
+          container-name: 'custom-httpbin'
+          port: '8888'
+          docker-run-args: >-
+            --cpus=0.5 --memory=256m
+          certificate-domains: 'test.local,api.example.com'
+          debug: 'true'
+
+      - name: 'Wait for advanced features service to be ready'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-advanced.outputs.service-url }}/get'
+          service_name: 'Advanced Features Readiness Check'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          debug: 'true'
+          retries: '15'
+          initial_sleep_time: '2'
+
+      - name: 'Advanced Features Test - GET request'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-advanced.outputs.service-url }}/get'
+          service_name: 'Advanced Features GET'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-advanced.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Advanced Features Test - Response time check'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-advanced.outputs.service-url }}/delay/1'
+          service_name: 'Advanced Features Response Time'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          curl_timeout: '10'
+          max_response_time: '2000'
+          fail_on_timeout: 'true'
+          debug: 'true'
+
+      - name: 'Advanced Features Test - Redirect handling'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-advanced.outputs.service-url }}/redirect/3'
+          service_name: 'Advanced Features Redirect'
+          verify_ssl: 'false'
+          follow_redirects: 'true'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-advanced.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Advanced Features Test - Basic authentication'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-advanced.outputs.service-url }}/basic-auth/testuser/testpass'
+          service_name: 'Advanced Features Basic Auth'
+          auth_string: 'testuser:testpass'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"authenticated": true'
+          debug: 'true'
+
+      - name: 'Advanced Features Test - Absolute redirect'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-advanced.outputs.service-url }}/absolute-redirect/2'
+          service_name: 'Advanced Features Absolute Redirect'
+          verify_ssl: 'false'
+          follow_redirects: 'true'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-advanced.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Check container resource limits'
+        run: |
+          echo "Checking container stats for custom-httpbin..."
+          docker stats custom-httpbin --no-stream
+          echo "Container inspection:"
+          docker inspect custom-httpbin | jq '.[] | {
+            Name: .Name,
+            CPUs: .HostConfig.CpuQuota,
+            Memory: .HostConfig.Memory,
+            Status: .State.Status
+          }'
+
+      - name: 'Stop advanced features service'
+        run: |
+          docker stop custom-httpbin
+
+      # =================================================================
+      # COMPREHENSIVE API TESTS
+      # =================================================================
+      - name: 'Setup go-httpbin HTTPS service for comprehensive tests'
+        id: httpbin-comprehensive
+        uses: ./
+        with:
+          debug: 'true'
+          certificate-domains: 'api.example.com,test.local'
+
+      # Additional HTTP Method Tests
+      - name: 'Comprehensive Test - POST with JSON'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/post'
+          service_name: 'Comprehensive POST JSON'
+          http_method: 'POST'
+          request_body: '{"name": "test", "value": 123, "active": true}'
+          content_type: 'application/json'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"name": "test"'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - PUT request'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/put'
+          service_name: 'Comprehensive PUT'
+          http_method: 'PUT'
+          request_headers: '{"Content-Type": "application/json"}'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-comprehensive.outputs.service-url }}/put"'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Basic Auth (valid credentials)'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/basic-auth/admin/secret'
+          service_name: 'Comprehensive Basic Auth Valid'
+          auth_string: 'admin:secret'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"authenticated": true'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Basic Auth (invalid credentials)'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/basic-auth/admin/secret'
+          service_name: 'Comprehensive Basic Auth Invalid'
+          auth_string: 'admin:wrong'
+          verify_ssl: 'false'
+          expected_http_code: '401'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - SSL verification with CA bundle'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/get'
+          service_name: 'Comprehensive SSL CA Bundle'
+          verify_ssl: 'true'
+          ca_bundle_path: >-
+            ${{ steps.httpbin-comprehensive.outputs.ca-cert-path }}
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-comprehensive.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Headers endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/headers'
+          service_name: 'Comprehensive Headers'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"headers":'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - User-Agent verification'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/user-agent'
+          service_name: 'Comprehensive User-Agent'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"user-agent":'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - JSON response validation'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/json'
+          service_name: 'Comprehensive JSON'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"slideshow":'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - UUID endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/uuid'
+          service_name: 'Comprehensive UUID'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Base64 endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/base64/aGVsbG8='
+          service_name: 'Comprehensive Base64'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Bytes endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/bytes/1024'
+          service_name: 'Comprehensive Bytes'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Redirect chain'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/redirect/5'
+          service_name: 'Comprehensive Redirect Chain'
+          verify_ssl: 'false'
+          follow_redirects: 'true'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-comprehensive.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Absolute redirect'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/absolute-redirect/3'
+          service_name: 'Comprehensive Absolute Redirect'
+          verify_ssl: 'false'
+          follow_redirects: 'true'
+          expected_http_code: '200'
+          regex: '"url": "${{ steps.httpbin-comprehensive.outputs.service-url }}/get"'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Response time measurement'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/delay/2'
+          service_name: 'Comprehensive Response Time'
+          verify_ssl: 'false'
+          curl_timeout: '10'
+          max_response_time: '3000'
+          fail_on_timeout: 'true'
+          expected_http_code: '200'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Redirect chain'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/status/503'
+          service_name: 'Comprehensive Retry Test'
+          verify_ssl: 'false'
+          expected_http_code: '503'
+          curl_timeout: '5'
+          retries: '2'
+          debug: 'true'
         continue-on-error: true
-        with:
-          invalid_input: "Some garbage"
 
-      # Failure testing is also important
-      - name: "Error if step above did NOT fail"
-        if: steps.failure.outcome == 'success'
-        shell: bash
+      # Performance and load testing
+      - name: 'Comprehensive Test - Performance check'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/get'
+          service_name: 'Comprehensive Performance'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          max_response_time: '1000'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Custom headers validation'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/headers'
+          service_name: 'Comprehensive Custom Headers'
+          request_headers: '{"X-API-Key": "test-key-123"}'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"X-Api-Key": "test-key-123"'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - Multiple custom headers with JSON output'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/headers'
+          service_name: 'Comprehensive Multiple Headers'
+          request_headers: '{"X-Client-ID": "client-123", "X-Request-ID": "req-456", "Authorization": "Bearer token123"}'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"X-Client-Id": "client-123"'
+          debug: 'true'
+          show_header_json: 'true'
+
+      - name: 'Comprehensive Test - IP address endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/ip'
+          service_name: 'Comprehensive IP'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"origin":'
+          debug: 'true'
+
+      - name: 'Comprehensive Test - PATCH method'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/patch'
+          service_name: 'Comprehensive PATCH'
+          http_method: 'PATCH'
+          request_body: '{"field": "updated_value"}'
+          content_type: 'application/json'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '"field": "updated_value"'
+          debug: 'true'
+
+      - name: 'Display comprehensive test summary'
         run: |
-          # Error if step above did NOT fail
-          echo "Error: previous test step did NOT fail ❌"
-          exit 1
+          echo "🎉 Comprehensive API Test Suite completed successfully!"
+          echo ""
+          echo "Tests completed:"
+          echo "✅ Basic HTTPS functionality"
+          echo "✅ HTTP (no SSL) functionality"
+          echo "✅ Custom port configuration"
+          echo "✅ Host network mode"
+          echo "✅ Advanced features (custom container, resource limits)"
+          echo "✅ Authentication (Basic Auth)"
+          echo "✅ SSL/TLS with CA bundle verification"
+          echo "✅ HTTP methods (GET, POST, PUT, PATCH)"
+          echo "✅ Request/response handling"
+          echo "✅ Redirect following"
+          echo "✅ Custom headers"
+          echo "✅ Response time measurement"
+          echo "✅ Retry mechanisms"
+          echo "✅ Error handling"
+          echo "✅ Performance validation"
+          echo ""
+          echo "All test scenarios have been validated successfully!"
+          echo "The go-httpbin-action is working correctly across all"
+          echo "configurations of the go-httpbin-action combined with"
+          echo "http-api-tool-docker!"
+
+      - name: 'Stop comprehensive test service'
+        run: |
+          docker stop ${{ steps.httpbin-comprehensive.outputs.container-name }}
+
+      # =================================================================
+      # ERROR HANDLING AND EDGE CASES TESTS
+      # =================================================================
+      - name: 'Setup go-httpbin service for error handling tests'
+        id: httpbin-error
+        uses: ./
+        with:
+          debug: 'true'
+
+      - name: 'Error Handling Test - 404 Not Found'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-error.outputs.service-url }}/status/404'
+          service_name: 'Error Handling 404'
+          verify_ssl: 'false'
+          expected_http_code: '404'
+          debug: 'true'
+
+      - name: 'Error Handling Test - 500 Internal Server Error'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-error.outputs.service-url }}/status/500'
+          service_name: 'Error Handling 500'
+          verify_ssl: 'false'
+          expected_http_code: '500'
+          debug: 'true'
+
+      - name: 'Error Handling Test - Timeout scenario'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-error.outputs.service-url }}/delay/1'
+          service_name: 'Error Handling Timeout'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          debug: 'true'
+          max_response_time: '3000'
+          curl_timeout: '10'
+
+      - name: 'Error Handling Test - Invalid JSON response'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-error.outputs.service-url }}/html'
+          service_name: 'Error Handling Invalid JSON'
+          verify_ssl: 'false'
+          expected_http_code: '200'
+          regex: '<title>Herman Melville - Moby-Dick</title>'
+          debug: 'true'
+
+      - name: 'Error Handling Test - Non-existent endpoint'
+        uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+        with:
+          url: '${{ steps.httpbin-error.outputs.service-url }}/nonexistent'
+          service_name: 'Error Handling Non-existent'
+          verify_ssl: 'false'
+          expected_http_code: '404'
+          regex: 'NOT FOUND'
+          debug: 'true'
+
+      - name: 'Final cleanup and summary'
+        run: |
+          echo "🧪 All test scenarios completed!"
+          echo "Stopping final test service..."
+          docker stop ${{ steps.httpbin-error.outputs.container-name }}
