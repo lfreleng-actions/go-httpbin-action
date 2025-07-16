@@ -1,0 +1,143 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2025 The Linux Foundation
+
+name: 'Input Validation Tests 🔒'
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  input-validation-tests:
+    name: 'Input Validation/Security Tests'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - name: 'Harden Runner'
+        uses: >-
+          step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7
+        with:
+          egress-policy: audit
+
+      - name: 'Checkout'
+        uses: >-
+          actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: 'Set up Docker'
+        run: |
+          # Ensure Docker is running
+          sudo systemctl start docker
+          sudo systemctl enable docker
+
+          # Add current user to docker group (may require re-login in some
+          # environments)
+          sudo usermod -aG docker "$USER" || true
+
+      - name: 'Run Input Validation Tests'
+        run: |
+          # Run the comprehensive test suite
+          ./tests/test-input-validation.sh --verbose
+
+      - name: 'Cleanup Test Containers (if any remain)'
+        if: always()
+        run: |
+          # Clean up any containers that might have been left behind
+          echo "Cleaning up any remaining test containers..."
+          docker ps -a --filter "name=test-" --format "{{.Names}}" | \
+          while read -r container; do
+            if [[ -n "$container" ]]; then
+              echo "Removing container: $container"
+              docker stop "$container" 2>/dev/null || true
+              docker rm "$container" 2>/dev/null || true
+            fi
+          done
+
+          # Clean up any test images that might have been created
+          docker images --filter "dangling=true" -q | \
+          while read -r image; do
+            if [[ -n "$image" ]]; then
+              echo "Removing dangling image: $image"
+              docker rmi "$image" 2>/dev/null || true
+            fi
+          done
+
+      - name: 'Check for Security Vulnerabilities'
+        if: always()
+        run: |
+          echo "Checking for common security issues..."
+
+          # Check if any test containers are still running (they shouldn't be)
+          running_containers=$(docker ps --filter "name=test-" \
+            --format "{{.Names}}" | wc -l)
+          if [[ $running_containers -gt 0 ]]; then
+            echo "❌ WARNING: Test containers still running after tests"
+            docker ps --filter "name=test-"
+            exit 1
+          else
+            echo "✅ No test containers running after cleanup"
+          fi
+
+          # Verify no suspicious processes were started
+          if pgrep -f "evil.com\|malicious" >/dev/null; then
+            echo "❌ WARNING: Suspicious processes detected"
+            pgrep -f "evil.com\|malicious" -l
+            exit 1
+          else
+            echo "✅ No suspicious processes detected"
+          fi
+
+      - name: 'Generate Test Report'
+        if: always()
+        run: |
+          {
+            echo "## Input Validation Test Report"
+            echo ""
+            echo "**Test Run**: $(date)"
+            echo "**Workflow**: ${{ github.workflow }}"
+            echo "**Run ID**: ${{ github.run_id }}"
+            echo "**Commit**: ${{ github.sha }}"
+            echo ""
+          } > test-report.md
+
+          if [[ -f test-results.log ]]; then
+            {
+              echo "### Test Results"
+              echo '```'
+              cat test-results.log
+              echo '```'
+            } >> test-report.md
+          fi
+
+          {
+            echo "### Docker Environment"
+            echo '```'
+            docker --version
+            docker info --format '{{.ServerVersion}}'
+            echo '```'
+          } >> test-report.md
+
+          cat test-report.md
+
+      - name: 'Upload Test Artifacts'
+        if: always()
+        uses: >-
+          actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: input-validation-test-results
+          path: |
+            test-report.md
+            test-results.log
+          retention-days: 30
