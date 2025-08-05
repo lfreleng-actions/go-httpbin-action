@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2025 The Linux Foundation
 
-name: '🛠️ Semantic Pull Request'
+name: 'Semantic Pull Request 🛠️'
 
 # yamllint disable-line rule:truthy
 on:

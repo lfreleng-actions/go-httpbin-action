@@ -2,36 +2,537 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2025 The Linux Foundation
 
-# actions-template
-name: "🛠️ Actions Template"
-description: "Description of action"
-# Any relevant notes/observations can go here
+name: 'Setup go-httpbin HTTPS Service'
+description: 'Creates a local go-httpbin service with HTTPS support'
+# Designed as a service endpoint to run in the GitHub CI environment
+# Facilitates testing of HTTP/HTTPS based APIs without dependencies
+# on external services that may be unreliable
 
 inputs:
-  input:
-    description: "Description of input"
-    required: true
+  container-name:
+    description: 'Name for the go-httpbin Docker container'
+    required: false
+    default: 'go-httpbin'
+
+  port:
+    description: 'Port to expose the go-httpbin service on'
+    required: false
+    default: '8080'
+
+  image:
+    description: 'Docker image to use for go-httpbin'
+    required: false
+    default: 'ghcr.io/mccutchen/go-httpbin'
+
+  image-tag:
+    description: 'Tag of the Docker image to use'
+    required: false
+    default: 'latest'
+
+  use-host-network:
+    description: 'Whether to use host networking mode (true/false)'
+    required: false
+    default: 'false'
+
+  wait-timeout:
+    description: 'Maximum time to wait for service to be ready (in seconds)'
+    required: false
+    default: '60'
+
+  debug:
+    description: 'Enable debug output (true/false)'
+    required: false
+    default: 'false'
+
+  cert-file-path:
+    description: 'Path for the SSL certificate file'
+    required: false
+    default: ''
+
+  key-file-path:
+    description: 'Path for the SSL private key file'
+    required: false
+    default: ''
+
+  certificate-domains:
+    description: >-
+      Additional domains to include in the SSL certificate (comma-separated)
+    required: false
+    default: ''
+
+  skip-certificate:
+    description: 'Skip SSL certificate generation (HTTP only)'
+    required: false
+    default: 'false'
+
+  docker-run-args:
+    description: 'Extra arguments to pass to the Docker run command'
+    required: false
+    default: ''
+
+  install-deps:
+    description: 'Whether to install dependencies (mkcert, etc.)'
+    required: false
+    default: 'true'
+
+  go-version:
+    description: 'Go version to install when needed to build mkcert'
+    required: false
+    default: '1.24'
+
+  skip-readiness-check:
+    description: 'Skip the built-in readiness check'
+    required: false
+    default: 'false'
 
 outputs:
-  output:
-    description: "Description of output"
-    value: ${{ steps.code.outputs.output }}
+  container-name:
+    description: 'Name of the created container'
+    value: ${{ steps.setup.outputs.container-name }}
+
+  service-url:
+    description: 'Base URL of the running service'
+    value: ${{ steps.setup.outputs.service-url }}
+
+  host-gateway-ip:
+    description: 'Docker host gateway IP for container-to-host communication'
+    value: ${{ steps.setup.outputs.host-gateway-ip }}
+
+  ca-cert-path:
+    description: 'Path to the mkcert CA certificate'
+    value: ${{ steps.setup.outputs.ca-cert-path }}
+
+  cert-file:
+    description: 'Path to the SSL certificate file'
+    value: ${{ steps.setup.outputs.cert-file }}
+
+  key-file:
+    description: 'Path to the SSL private key file'
+    value: ${{ steps.setup.outputs.key-file }}
+
+  protocol:
+    description: 'Protocol used (http or https)'
+    value: ${{ steps.setup.outputs.protocol }}
 
 runs:
-  using: "composite"
+  using: 'composite'
   steps:
-    - name: "Friendly Name"
-      id: code
+    - name: 'Check for Go installation'
       shell: bash
       run: |
-        # Friendly Name
-        input="${{ inputs.input }}"
-        if [ -z "$input" ]; then
-          echo "Error: mandatory input was not set/configured ❌"
-          exit 1
+        # Check for Go installation and version
+        if ! command -v go &> /dev/null; then
+          echo "Go is not installed"
+          echo "install_go=true" >> "$GITHUB_ENV"
+        else
+          GO_VERSION_OUTPUT=$(go version)
+          echo "$GO_VERSION_OUTPUT"
+
+          # Extract Go version number (e.g., "1.21.0" from
+          # "go version go1.21.0 linux/amd64")
+          GO_VERSION=$(echo "$GO_VERSION_OUTPUT" | \
+            grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | sed 's/go//')
+
+          # Check if Go version meets minimum requirements (1.18+)
+          if [ -n "$GO_VERSION" ]; then
+            MAJOR=$(echo "$GO_VERSION" | cut -d. -f1)
+            MINOR=$(echo "$GO_VERSION" | cut -d. -f2)
+
+            if [ "$MAJOR" -lt 1 ] || \
+              ([ "$MAJOR" -eq 1 ] && [ "$MINOR" -lt 18 ]); then
+              echo "Warning: Go version $GO_VERSION is older than" \
+                "recommended minimum (1.18)"
+              echo "Consider upgrading Go or the action will attempt to" \
+                "install a newer version"
+              echo "install_go=true" >> "$GITHUB_ENV"
+            else
+              echo "Go version $GO_VERSION meets requirements ✅"
+            fi
+          fi
         fi
 
-        echo "output=$input" >> "$GITHUB_ENV"
-        echo "output=$input" >> "$GITHUB_OUTPUT"
-        echo "Action received: $input ✅"
-        echo "Action received: $input ✅" >> "$GITHUB_STEP_SUMMARY"
+    - name: 'Setup Go'
+      if: ${{ env.install_go == 'true' }}
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: 'Setup go-httpbin service'
+      id: setup
+      shell: bash
+      # Impossible to incorporate SHA256 values with line length restrictions
+      # yamllint disable rule:line-length
+      run: |
+        set -euo pipefail
+
+        # Enable debug mode if requested
+        if [[ "${{ inputs.debug }}" == "true" ]]; then
+          set -x
+        fi
+
+        echo "=== Setting up go-httpbin service ==="
+
+        # Create secure temporary directory for certificates with restricted permissions
+        SECURE_TEMP_DIR=$(mktemp -d)
+        chmod 700 "$SECURE_TEMP_DIR"
+        echo "Created secure temporary directory: $SECURE_TEMP_DIR"
+
+        # Set up cleanup trap to ensure secure directory is removed on exit
+        cleanup() {
+          echo "Cleaning up secure temporary directory..."
+          rm -rf "$SECURE_TEMP_DIR"
+        }
+        trap cleanup EXIT INT TERM
+
+        # Set certificate paths - use secure temp dir by default
+        if [[ -n "${{ inputs.cert-file-path }}" ]]; then
+          CERT_FILE_PATH="${{ inputs.cert-file-path }}"
+        else
+          CERT_FILE_PATH="$SECURE_TEMP_DIR/localhost-cert.pem"
+        fi
+
+        if [[ -n "${{ inputs.key-file-path }}" ]]; then
+          KEY_FILE_PATH="${{ inputs.key-file-path }}"
+        else
+          KEY_FILE_PATH="$SECURE_TEMP_DIR/localhost-key.pem"
+        fi
+
+        echo "Certificate file path: $CERT_FILE_PATH"
+        echo "Key file path: $KEY_FILE_PATH"
+
+        # Determine protocol based on certificate generation
+        PROTOCOL="https"
+        if [[ "${{ inputs.skip-certificate }}" == "true" ]]; then
+          PROTOCOL="http"
+          echo "Using HTTP protocol (SSL certificates disabled)"
+        else
+          echo "Using HTTPS protocol with SSL certificates"
+        fi
+
+        # Install system dependencies if requested
+        if [[ "${{ inputs.install-deps }}" == "true" ]]; then
+          echo "Installing dependencies..."
+
+          # Install platform-specific NSS tools
+          case "$(uname -s)" in
+            Linux*)
+              sudo apt-get update -qq
+              sudo apt-get install -y libnss3-tools git
+              ;;
+            Darwin*)
+              # macOS - install nss if available via Homebrew (optional)
+              if command -v brew &> /dev/null; then
+                brew install nss 2>/dev/null || echo "Note: nss not installed via Homebrew"
+              fi
+              ;;
+            *)
+              echo "ERROR: Unsupported platform $(uname -s)"
+              echo "This action supports Linux and macOS only"
+              exit 1
+              ;;
+          esac
+
+          # Install mkcert from source for cross-platform compatibility
+          echo "Installing mkcert from source..."
+
+          # Pin to specific commit for security (v1.4.4)
+          MKCERT_VERSION="v1.4.4"
+          MKCERT_COMMIT="2a46726cebac0ff4e1f133d90b4e4c42f1edf44a"
+          MKCERT_REPO="https://github.com/FiloSottile/mkcert.git"
+
+          # Create temporary directory for build
+          TEMP_DIR=$(mktemp -d)
+          cd "$TEMP_DIR"
+
+          echo "Cloning mkcert repository..."
+          git clone "$MKCERT_REPO" mkcert
+          cd mkcert
+
+          # Verify we're on the expected commit
+          ACTUAL_COMMIT=$(git rev-parse HEAD)
+          if [[ "$ACTUAL_COMMIT" != "$MKCERT_COMMIT" ]]; then
+            echo "Checking out pinned commit: $MKCERT_COMMIT"
+
+            # First verify the commit exists in the repository
+            if ! git cat-file -e "$MKCERT_COMMIT" 2>/dev/null; then
+              echo "ERROR: Commit $MKCERT_COMMIT not found in repository!"
+              exit 1
+            fi
+
+            # Checkout the specific commit and verify it succeeded
+            if ! git checkout "$MKCERT_COMMIT"; then
+              echo "ERROR: Failed to checkout commit $MKCERT_COMMIT"
+              exit 1
+            fi
+
+            # Final verification that we're on the expected commit
+            ACTUAL_COMMIT=$(git rev-parse HEAD)
+            if [[ "$ACTUAL_COMMIT" != "$MKCERT_COMMIT" ]]; then
+              echo "ERROR: Checkout succeeded but we're on wrong commit!"
+              echo "Expected: $MKCERT_COMMIT"
+              echo "Actual:   $ACTUAL_COMMIT"
+              exit 1
+            fi
+          fi
+
+          echo "Verified mkcert source at commit: $ACTUAL_COMMIT"
+
+          # Build mkcert from source
+          echo "Building mkcert..."
+          go build -ldflags "-X main.Version=$MKCERT_VERSION" -o mkcert
+
+          # Install the binary
+          sudo mv mkcert /usr/local/bin/mkcert
+          sudo chmod +x /usr/local/bin/mkcert
+
+          # Clean up temporary directory
+          cd /
+          rm -rf "$TEMP_DIR"
+
+          # Verify installation
+          if ! command -v mkcert &> /dev/null; then
+            echo "ERROR: mkcert installation failed - binary not found in PATH"
+            exit 1
+          fi
+
+          INSTALLED_VERSION=$(mkcert -version 2>&1 | head -1 || echo "unknown")
+          echo "Successfully installed mkcert: $INSTALLED_VERSION"
+        fi
+
+        # Get Docker host gateway IP for container-to-host communication
+        HOST_GATEWAY=$(docker run --rm alpine sh -c \
+          "ip route | grep '^default' | cut -d' ' -f3")
+        echo "Docker host gateway IP: $HOST_GATEWAY"
+
+        # Setup local CA and certificates if not skipped
+        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+          echo "Setting up local CA and certificates..."
+          mkcert -install
+
+          # Prepare certificate domains
+          CERT_DOMAINS="localhost 127.0.0.1 $HOST_GATEWAY"
+          if [[ -n "${{ inputs.certificate-domains }}" ]]; then
+            # Replace commas with spaces for mkcert compatibility
+            ADDITIONAL_DOMAINS="${{ inputs.certificate-domains }}"
+            ADDITIONAL_DOMAINS="${ADDITIONAL_DOMAINS//,/ }"
+            CERT_DOMAINS="$CERT_DOMAINS $ADDITIONAL_DOMAINS"
+          fi
+
+          # Generate certificate for specified domains
+          mkcert -key-file "$KEY_FILE_PATH" \
+            -cert-file "$CERT_FILE_PATH" $CERT_DOMAINS
+
+          # Install the CA certificate in the system trust store
+          CA_ROOT=$(mkcert -CAROOT)
+          echo "mkcert CA root directory: $CA_ROOT"
+
+          # Copy CA to known locations
+          sudo cp "$CA_ROOT/rootCA.pem" \
+            /usr/local/share/ca-certificates/mkcert-ca.crt
+          sudo update-ca-certificates
+
+          # Copy CA to secure temp directory with proper permissions
+          cp "$CA_ROOT/rootCA.pem" "$SECURE_TEMP_DIR/mkcert-ca.pem"
+          chmod 644 "$SECURE_TEMP_DIR/mkcert-ca.pem"
+
+          # Also copy CA to workspace for Docker containers
+          cp "$CA_ROOT/rootCA.pem" "$GITHUB_WORKSPACE/mkcert-ca.pem"
+          chmod 644 "$GITHUB_WORKSPACE/mkcert-ca.pem"
+
+          # Verify certificate files were created
+          if [[ "${{ inputs.debug }}" == "true" ]]; then
+            echo "=== Certificate files check ==="
+            ls -la "$CERT_FILE_PATH" "$KEY_FILE_PATH"
+            head -5 "$CERT_FILE_PATH"
+          fi
+
+          # Create shared directory for certificates with secure permissions
+          DOCKER_CERTS_DIR=$(mktemp -d)
+          chmod 700 "$DOCKER_CERTS_DIR"
+          # Copy certificates to shared directory with consistent naming
+          cp "$KEY_FILE_PATH" "$DOCKER_CERTS_DIR/localhost-key.pem"
+          cp "$CERT_FILE_PATH" "$DOCKER_CERTS_DIR/localhost-cert.pem"
+
+          # Set proper permissions on certificate files
+          chmod 644 "$DOCKER_CERTS_DIR/localhost-cert.pem"
+          chmod 600 "$DOCKER_CERTS_DIR/localhost-key.pem"
+        fi
+
+        # Clean up any existing container
+        docker rm -f "${{ inputs.container-name }}" 2>/dev/null || true
+
+        # Network mode and port mapping will be added directly to the array
+
+        # Prepare Docker image with tag
+        DOCKER_IMAGE="${{ inputs.image }}:${{ inputs.image-tag }}"
+
+        # Run the container with custom command
+        echo "Starting go-httpbin container..."
+        # Prepare docker run arguments as an array to avoid eval and injection
+        DOCKER_RUN_ARGS=(--name "${{ inputs.container-name }}")
+
+        # Add environment variables for HTTPS if certificates are enabled
+        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+          DOCKER_RUN_ARGS+=(-e "HTTPS_KEY_FILE=/tmp/localhost-key.pem")
+          DOCKER_RUN_ARGS+=(-e "HTTPS_CERT_FILE=/tmp/localhost-cert.pem")
+        fi
+
+        # Add volume mounts if certificates are enabled
+        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+          DOCKER_RUN_ARGS+=(-v "$DOCKER_CERTS_DIR:/tmp")
+        fi
+
+        # Add network configuration
+        if [[ "${{ inputs.use-host-network }}" == "true" ]]; then
+          DOCKER_RUN_ARGS+=(--network=host)
+        else
+          DOCKER_RUN_ARGS+=(-p "${{ inputs.port }}:8080")
+        fi
+
+        # Add custom docker run arguments if specified
+        if [[ -n "${{ inputs.docker-run-args }}" ]]; then
+          # Parse docker-run-args with proper shell argument parsing
+          # This handles quotes, escaping, and preserves argument boundaries
+
+          declare -a PARSED_ARGS
+
+          # Use bash read to safely parse shell arguments
+          # This safely parses shell arguments while handling quotes and escaping
+          declare -a RAW_ARGS
+          if [[ -n "${{ inputs.docker-run-args }}" ]]; then
+            IFS=' ' read -ra RAW_ARGS <<< "${{ inputs.docker-run-args }}"
+          fi
+
+          # Check if array has elements before iterating to avoid empty array issues
+          if [[ ${#RAW_ARGS[@]} -gt 0 ]]; then
+            for arg in "${RAW_ARGS[@]}"; do
+              # Skip empty arguments
+              [[ -z "$arg" ]] && continue
+
+              # Comprehensive validation for each parsed argument
+
+              # Check for command injection patterns
+              if [[ "$arg" == *";"* ]] || [[ "$arg" == *"&"* ]] || [[ "$arg" == *"|"* ]] || \
+                 [[ "$arg" == *'$('* ]] || \
+                 [[ "$arg" == *'`'* ]]; then
+                echo "Error: Dangerous command injection pattern detected in argument: $arg"
+                echo "Aborting for safety ❌" >&2
+                exit 1
+              fi
+
+              # Check for suspicious variable expansion patterns
+              if [[ "$arg" == *'${'* ]] || \
+                 [[ "$arg" =~ \$[A-Za-z_] ]]; then
+                echo "Error: Variable expansion detected in argument: $arg"
+                echo "For security, variable expansion is not allowed in docker-run-args"
+                echo "Aborting for safety ❌" >&2
+                exit 1
+              fi
+
+              # Check for shell redirection that could be dangerous
+              if [[ "$arg" == *"<"* ]] || [[ "$arg" == *">"* ]]; then
+                if [[ ! "$arg" =~ ^--[a-zA-Z-]+[\<\>=] ]]; then
+                  echo "Error: Shell redirection detected in argument: $arg"
+                  echo "Aborting for safety ❌" >&2
+                  exit 1
+                fi
+              fi
+
+              # Validate Docker argument format for flags
+              if [[ "$arg" =~ ^- ]] && [[ ! "$arg" =~ ^--?[a-zA-Z0-9-]+(=.*)?$ ]]; then
+                echo "Error: Invalid Docker argument format: $arg"
+                echo "Expected format: -flag or --flag or --flag=value"
+                echo "Aborting for safety ❌" >&2
+                exit 1
+              fi
+
+              PARSED_ARGS+=("$arg")
+            done
+          fi
+
+          # Verify we parsed at least one argument if input was non-empty
+          if [[ ${#PARSED_ARGS[@]} -eq 0 ]]; then
+            echo "Error: Failed to parse any valid arguments from docker-run-args"
+            echo "Input was: ${{ inputs.docker-run-args }}"
+            echo "Aborting for safety ❌" >&2
+            exit 1
+          fi
+
+          # Add validated arguments to main Docker command array
+          DOCKER_RUN_ARGS+=("${PARSED_ARGS[@]}")
+
+          if [[ "${{ inputs.debug }}" == "true" ]]; then
+            echo "Parsed docker-run-args: ${PARSED_ARGS[*]}"
+          fi
+        fi
+
+        # Add detached mode and image
+        DOCKER_RUN_ARGS+=(-d "${DOCKER_IMAGE}")
+        if [[ "${{ inputs.debug }}" == "true" ]]; then
+          echo "Docker command: docker run ${DOCKER_RUN_ARGS[*]}"
+        fi
+        docker run "${DOCKER_RUN_ARGS[@]}"
+
+        # Wait for the container to start
+        sleep 5
+
+        # Determine service URL based on network mode and protocol
+        if [[ "${{ inputs.use-host-network }}" == "true" ]]; then
+          SERVICE_URL="${PROTOCOL}://localhost:8080"
+        else
+          SERVICE_URL="${PROTOCOL}://$HOST_GATEWAY:${{ inputs.port }}"
+        fi
+
+        # Wait a moment for the container to start
+        sleep 3
+
+        # Set outputs
+        echo "container-name=${{ inputs.container-name }}" >> "$GITHUB_OUTPUT"
+        echo "service-url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+        echo "host-gateway-ip=$HOST_GATEWAY" >> "$GITHUB_OUTPUT"
+        echo "protocol=$PROTOCOL" >> "$GITHUB_OUTPUT"
+
+        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+          echo "ca-cert-path=mkcert-ca.pem" >> "$GITHUB_OUTPUT"
+          echo "cert-file=$CERT_FILE_PATH" >> "$GITHUB_OUTPUT"
+          echo "key-file=$KEY_FILE_PATH" >> "$GITHUB_OUTPUT"
+        else
+          echo "ca-cert-path=" >> "$GITHUB_OUTPUT"
+          echo "cert-file=" >> "$GITHUB_OUTPUT"
+          echo "key-file=" >> "$GITHUB_OUTPUT"
+        fi
+
+        # Also set environment variables for convenience
+        echo "HOST_GATEWAY=$HOST_GATEWAY" >> "$GITHUB_ENV"
+        echo "PROTOCOL=$PROTOCOL" >> "$GITHUB_ENV"
+
+        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+          echo "MKCERT_CA_PATH=mkcert-ca.pem" >> "$GITHUB_ENV"
+        fi
+
+        echo "GO_HTTPBIN_URL=$SERVICE_URL" >> "$GITHUB_ENV"
+
+        echo "=== go-httpbin setup completed successfully! ==="
+        echo "Service URL: $SERVICE_URL"
+        echo "Protocol: $PROTOCOL"
+        echo "Host Gateway IP: $HOST_GATEWAY"
+
+        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+          echo "CA Certificate: mkcert-ca.pem (in workspace)"
+        fi
+
+    - name: 'Wait for go-httpbin service readiness'
+      if: ${{ inputs.skip-readiness-check != 'true' }}
+      uses: lfreleng-actions/http-api-tool-docker@1008eb6d9e353f0a8b03ef6a8202c281902ad49a # v0.1.0
+      with:
+        url: '${{ steps.setup.outputs.service-url }}/get'
+        service_name: 'go-httpbin readiness check'
+        verify_ssl: 'false'
+        expected_http_code: '200'
+        debug: '${{ inputs.debug }}'
+        retries: '${{ inputs.wait-timeout }}'
+        initial_sleep_time: '1'
+
+branding:
+  icon: 'server'
+  color: 'blue'
