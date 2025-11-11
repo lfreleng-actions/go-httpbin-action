@@ -140,7 +140,7 @@ steps:
 | Output | Description |
 |--------|-------------|
 | `container-name` | Name of the created container |
-| `service-url` | Base URL of the running service |
+| `service-url` | Base URL for accessing the service |
 | `host-gateway-ip` | Docker host gateway IP for container communication |
 | `ca-cert-path` | Path to the mkcert CA certificate (relative to workspace) |
 | `cert-file` | Path to the SSL certificate file |
@@ -168,8 +168,15 @@ Uses Docker port mapping to expose the service on the specified port:
     port: '8080'
 ```
 
-Access the service at: `https://localhost:8080` or
-`https://${{ steps.httpbin.outputs.host-gateway-ip }}:8080` from containers.
+The service URL is automatically set to the Docker host gateway IP (typically
+`172.17.0.1`) with the specified port for container-to-container communication.
+
+**From the host (your local machine):** Access the service at
+`https://localhost:${{ inputs.port }}` (e.g., `https://localhost:8080`).
+
+**From containers (like http-api-tool-docker):** Use the `service-url` output,
+which points to `https://$HOST_GATEWAY:${{ inputs.port }}` for proper
+container-to-container networking.
 
 ### Host Network Mode
 
@@ -181,7 +188,10 @@ Uses Docker host networking for direct access:
     use-host-network: 'true'
 ```
 
-Access the service at: `https://localhost:8080` from both host and containers.
+Access the service at: `https://localhost:8080`.
+
+**Note**: In host network mode, the container uses port 8080 directly on the
+host network namespace. The port input has no effect in this mode.
 
 ## SSL Certificate Handling
 
