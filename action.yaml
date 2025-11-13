@@ -22,7 +22,10 @@ inputs:
   image:
     description: 'Docker image to use for go-httpbin'
     required: false
+    # Call using GitHub local registry
     default: 'ghcr.io/mccutchen/go-httpbin'
+    # Unused fallback option
+    # default: 'mccutchen/go-httpbin'
 
   image-tag:
     description: 'Tag of the Docker image to use'
@@ -356,6 +359,13 @@ runs:
           # Set proper permissions on certificate files
           chmod 644 "$DOCKER_CERTS_DIR/localhost-cert.pem"
           chmod 600 "$DOCKER_CERTS_DIR/localhost-key.pem"
+
+          # Debug: Show certificate directory setup
+          if [[ "${{ inputs.debug }}" == "true" ]]; then
+            echo "=== Docker certificates directory ==="
+            echo "DOCKER_CERTS_DIR: $DOCKER_CERTS_DIR"
+            ls -la "$DOCKER_CERTS_DIR"
+          fi
         fi
 
         # Clean up any existing container
@@ -370,6 +380,9 @@ runs:
         echo "Starting go-httpbin container..."
         # Prepare docker run arguments as an array to avoid eval and injection
         DOCKER_RUN_ARGS=(--name "${{ inputs.container-name }}")
+
+        # Run container as host user to access mounted certificate files
+        DOCKER_RUN_ARGS+=(--user "$(id -u):$(id -g)")
 
         # Add environment variables for HTTPS if certificates are enabled
         if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
@@ -480,6 +493,7 @@ runs:
         if [[ "${{ inputs.use-host-network }}" == "true" ]]; then
           SERVICE_URL="${PROTOCOL}://localhost:8080"
         else
+          # Use host gateway for standard mode for container-to-container communication
           SERVICE_URL="${PROTOCOL}://$HOST_GATEWAY:${{ inputs.port }}"
         fi
 
@@ -523,7 +537,7 @@ runs:
 
     - name: 'Wait for go-httpbin service readiness'
       if: ${{ inputs.skip-readiness-check != 'true' }}
-      uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+      uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
       with:
         url: '${{ steps.setup.outputs.service-url }}/get'
         service_name: 'go-httpbin readiness check'

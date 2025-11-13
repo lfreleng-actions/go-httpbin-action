@@ -30,12 +30,11 @@ jobs:
     timeout-minutes: 30
     steps:
       # Harden the runner used by this workflow
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+      - uses: step-security/harden-runner@95d9a5deda9de15063e7595e9719c11c38c90ae2 # v2.13.2
         with:
           egress-policy: 'audit'
 
       - name: 'Checkout repository'
-        # yamllint disable-line rule:line-length
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       # =================================================================
@@ -46,9 +45,94 @@ jobs:
         uses: ./
         with:
           debug: 'true'
+          # Temporarily decouple go-httpbin-action from http-api-tool-docker
+          # This prevents problems with the second action breaking the first
+          skip-readiness-check: 'true'
+
+      - name: 'Debug the testing environment'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 Service Configuration"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Service URL: ${{ steps.httpbin-basic.outputs.service-url }}"
+          echo "Host Gateway IP: ${{ steps.httpbin-basic.outputs.host-gateway-ip }}"
+          echo "Protocol: ${{ steps.httpbin-basic.outputs.protocol }}"
+          echo "Container: ${{ steps.httpbin-basic.outputs.container-name }}"
+          echo ""
+
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🐳 Container Status"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          if docker ps | grep -q go-httpbin; then
+            echo "✅ Container is running"
+            docker ps | grep go-httpbin
+          else
+            echo "❌ Container not found"
+            exit 1
+          fi
+          echo ""
+
+          STATUS=$(docker inspect ${{ steps.httpbin-basic.outputs.container-name }} --format='{{.State.Status}}' 2>/dev/null || echo "unknown")
+          if [ "$STATUS" = "running" ]; then
+            echo "✅ Container status: $STATUS"
+          else
+            echo "❌ Container status: $STATUS"
+            docker logs ${{ steps.httpbin-basic.outputs.container-name }} 2>&1 | tail -10
+            exit 1
+          fi
+          echo ""
+
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🌐 Network Connectivity Tests"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+          # Test localhost (should work from host with port mapping)
+          echo -n "Testing localhost:8080... "
+          if curl -s -k --max-time 3 https://localhost:8080/get > /dev/null 2>&1; then
+            echo "✅"
+          else
+            echo "❌"
+          fi
+
+          # Test gateway IP (should work for container-to-container communication)
+          echo -n "Testing gateway IP (${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080)... "
+          if curl -s -k --max-time 3 https://${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080/get > /dev/null 2>&1; then
+            echo "✅"
+          else
+            echo "❌"
+          fi
+
+          # Test service URL (this is what the action outputs)
+          echo -n "Testing service URL (${{ steps.httpbin-basic.outputs.service-url }})... "
+          if curl -s -k --max-time 3 ${{ steps.httpbin-basic.outputs.service-url }}/get > /dev/null 2>&1; then
+            echo "✅"
+          else
+            echo "❌"
+            echo "Failed to connect to service URL!"
+            exit 1
+          fi
+          echo ""
+
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔌 Container-to-Host Networking"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Testing from another container (simulates http-api-tool-docker):"
+
+          docker run --rm alpine sh -c "
+            apk add --no-cache curl >/dev/null 2>&1
+            echo -n 'Gateway IP (${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080)... '
+            if curl -s -k --max-time 2 https://${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080/get > /dev/null 2>&1; then
+              echo '✅'
+            else
+              echo '❌'
+              exit 1
+            fi
+          "
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: 'Basic HTTPS Test - Simple GET request'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-basic.outputs.service-url }}/get'
           service_name: 'Basic HTTPS GET'
@@ -60,7 +144,7 @@ jobs:
           max_response_time: '5000'
 
       - name: 'Basic HTTPS Test - GET with CA bundle'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-basic.outputs.service-url }}/get'
           service_name: 'Basic HTTPS GET with CA bundle'
@@ -71,7 +155,7 @@ jobs:
           debug: 'true'
 
       - name: 'Basic HTTPS Test - POST with JSON body'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-basic.outputs.service-url }}/post'
           service_name: 'Basic HTTPS POST with JSON'
@@ -84,7 +168,7 @@ jobs:
           debug: 'true'
 
       - name: 'Basic HTTPS Test - POST with custom headers'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-basic.outputs.service-url }}/post'
           service_name: 'Basic HTTPS POST with headers'
@@ -102,7 +186,7 @@ jobs:
           debug: 'true'
 
       - name: 'Basic HTTPS Test - Status endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-basic.outputs.service-url }}/status/418'
           service_name: 'Basic HTTPS Status'
@@ -126,7 +210,7 @@ jobs:
           debug: 'true'
 
       - name: 'HTTP Test - Simple GET request'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-http.outputs.service-url }}/get'
           service_name: 'HTTP GET'
@@ -137,7 +221,7 @@ jobs:
           show_header_json: 'true'
 
       - name: 'HTTP Test - GET with custom headers'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-http.outputs.service-url }}/headers'
           service_name: 'HTTP Headers'
@@ -148,7 +232,7 @@ jobs:
           debug: 'true'
 
       - name: 'HTTP Test - User-Agent header'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-http.outputs.service-url }}/user-agent'
           service_name: 'HTTP User-Agent'
@@ -175,7 +259,7 @@ jobs:
           skip-readiness-check: 'true'
 
       - name: 'Wait for custom port service to be ready'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-custom-port.outputs.service-url }}/get'
           service_name: 'Custom Port Readiness Check'
@@ -186,7 +270,7 @@ jobs:
           initial_sleep_time: '2'
 
       - name: 'Custom Port Test - GET request on custom port'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-custom-port.outputs.service-url }}/get'
           service_name: 'Custom Port GET'
@@ -199,7 +283,7 @@ jobs:
           fail_on_timeout: 'true'
 
       - name: 'Custom Port Test - Status endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-custom-port.outputs.service-url }}/status/201'
           service_name: 'Custom Port Status'
@@ -224,7 +308,7 @@ jobs:
           debug: 'true'
 
       - name: 'Host Network Test - GET request'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-host-network.outputs.service-url }}/get'
           service_name: 'Host Network GET'
@@ -234,7 +318,7 @@ jobs:
           debug: 'true'
 
       - name: 'Host Network Test - GET with retries'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-host-network.outputs.service-url }}/delay/1'
           service_name: 'Host Network Delay'
@@ -246,7 +330,7 @@ jobs:
           initial_sleep_time: '2'
 
       - name: 'Host Network Test - Headers endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-host-network.outputs.service-url }}/headers'
           service_name: 'Host Network Headers'
@@ -274,7 +358,7 @@ jobs:
           debug: 'true'
 
       - name: 'Wait for advanced features service to be ready'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-advanced.outputs.service-url }}/get'
           service_name: 'Advanced Features Readiness Check'
@@ -285,7 +369,7 @@ jobs:
           initial_sleep_time: '2'
 
       - name: 'Advanced Features Test - GET request'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-advanced.outputs.service-url }}/get'
           service_name: 'Advanced Features GET'
@@ -295,7 +379,7 @@ jobs:
           debug: 'true'
 
       - name: 'Advanced Features Test - Response time check'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-advanced.outputs.service-url }}/delay/1'
           service_name: 'Advanced Features Response Time'
@@ -307,7 +391,7 @@ jobs:
           debug: 'true'
 
       - name: 'Advanced Features Test - Redirect handling'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-advanced.outputs.service-url }}/redirect/3'
           service_name: 'Advanced Features Redirect'
@@ -318,7 +402,7 @@ jobs:
           debug: 'true'
 
       - name: 'Advanced Features Test - Basic authentication'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-advanced.outputs.service-url }}/basic-auth/testuser/testpass'
           service_name: 'Advanced Features Basic Auth'
@@ -329,7 +413,7 @@ jobs:
           debug: 'true'
 
       - name: 'Advanced Features Test - Absolute redirect'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-advanced.outputs.service-url }}/absolute-redirect/2'
           service_name: 'Advanced Features Absolute Redirect'
@@ -367,7 +451,7 @@ jobs:
 
       # Additional HTTP Method Tests
       - name: 'Comprehensive Test - POST with JSON'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/post'
           service_name: 'Comprehensive POST JSON'
@@ -380,7 +464,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - PUT request'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/put'
           service_name: 'Comprehensive PUT'
@@ -392,7 +476,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Basic Auth (valid credentials)'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/basic-auth/admin/secret'
           service_name: 'Comprehensive Basic Auth Valid'
@@ -403,7 +487,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Basic Auth (invalid credentials)'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/basic-auth/admin/secret'
           service_name: 'Comprehensive Basic Auth Invalid'
@@ -413,7 +497,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - SSL verification with CA bundle'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/get'
           service_name: 'Comprehensive SSL CA Bundle'
@@ -425,7 +509,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Headers endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/headers'
           service_name: 'Comprehensive Headers'
@@ -435,7 +519,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - User-Agent verification'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/user-agent'
           service_name: 'Comprehensive User-Agent'
@@ -445,7 +529,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - JSON response validation'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/json'
           service_name: 'Comprehensive JSON'
@@ -455,7 +539,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - UUID endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/uuid'
           service_name: 'Comprehensive UUID'
@@ -464,7 +548,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Base64 endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/base64/aGVsbG8='
           service_name: 'Comprehensive Base64'
@@ -473,7 +557,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Bytes endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/bytes/1024'
           service_name: 'Comprehensive Bytes'
@@ -482,7 +566,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Redirect chain'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/redirect/5'
           service_name: 'Comprehensive Redirect Chain'
@@ -493,7 +577,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Absolute redirect'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/absolute-redirect/3'
           service_name: 'Comprehensive Absolute Redirect'
@@ -504,7 +588,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Response time measurement'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/delay/2'
           service_name: 'Comprehensive Response Time'
@@ -516,7 +600,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Redirect chain'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/status/503'
           service_name: 'Comprehensive Retry Test'
@@ -529,7 +613,7 @@ jobs:
 
       # Performance and load testing
       - name: 'Comprehensive Test - Performance check'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/get'
           service_name: 'Comprehensive Performance'
@@ -539,7 +623,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Custom headers validation'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/headers'
           service_name: 'Comprehensive Custom Headers'
@@ -550,7 +634,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - Multiple custom headers with JSON output'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/headers'
           service_name: 'Comprehensive Multiple Headers'
@@ -562,7 +646,7 @@ jobs:
           show_header_json: 'true'
 
       - name: 'Comprehensive Test - IP address endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/ip'
           service_name: 'Comprehensive IP'
@@ -572,7 +656,7 @@ jobs:
           debug: 'true'
 
       - name: 'Comprehensive Test - PATCH method'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/patch'
           service_name: 'Comprehensive PATCH'
@@ -624,7 +708,7 @@ jobs:
           debug: 'true'
 
       - name: 'Error Handling Test - 404 Not Found'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-error.outputs.service-url }}/status/404'
           service_name: 'Error Handling 404'
@@ -633,7 +717,7 @@ jobs:
           debug: 'true'
 
       - name: 'Error Handling Test - 500 Internal Server Error'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-error.outputs.service-url }}/status/500'
           service_name: 'Error Handling 500'
@@ -642,7 +726,7 @@ jobs:
           debug: 'true'
 
       - name: 'Error Handling Test - Timeout scenario'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-error.outputs.service-url }}/delay/1'
           service_name: 'Error Handling Timeout'
@@ -653,7 +737,7 @@ jobs:
           curl_timeout: '10'
 
       - name: 'Error Handling Test - Invalid JSON response'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-error.outputs.service-url }}/html'
           service_name: 'Error Handling Invalid JSON'
@@ -663,7 +747,7 @@ jobs:
           debug: 'true'
 
       - name: 'Error Handling Test - Non-existent endpoint'
-        uses: lfreleng-actions/http-api-tool-docker@54f78d3d822d7a10d3f62aa0902963a3e4a490fb # v1.0.1
+        uses: lfreleng-actions/http-api-tool-docker@7318bd02587e3ea4d8dfc834aba81645cb3116cc # v1.0.2
         with:
           url: '${{ steps.httpbin-error.outputs.service-url }}/nonexistent'
           service_name: 'Error Handling Non-existent'
