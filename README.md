@@ -117,35 +117,43 @@ steps:
 
 ## Inputs
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `container-name` | Name for the Docker container | No | `go-httpbin` |
-| `port` | Port to expose the service on | No | `8080` |
-| `image` | Docker image to use | No | `ghcr.io/mccutchen/go-httpbin` |
-| `image-tag` | Tag of the Docker image | No | `latest` |
-| `use-host-network` | Use host networking (true/false) | No | `false` |
-| `wait-timeout` | Wait time for service ready (retries) | No | `60` |
-| `debug` | Enable debug output (true/false) | No | `false` |
-| `cert-file-path` | SSL certificate file path | No | `<secure>/cert.pem` |
-| `key-file-path` | SSL private key file path | No | `<secure>/key.pem` |
-| `certificate-domains` | Extra domains for SSL certificate | No | `` |
-| `skip-certificate` | Skip SSL certificate generation | No | `false` |
-| `docker-run-args` | Extra Docker run arguments | No | `` |
-| `install-deps` | Whether to install dependencies | No | `true` |
-| `go-version` | Go version for building mkcert (if unavailable) | No | `1.24` |
-| `skip-readiness-check` | Skip the built-in readiness check | No | `false` |
+<!-- markdownlint-disable MD013 -->
+
+| Input                  | Description                                     | Required | Default                        |
+| ---------------------- | ----------------------------------------------- | -------- | ------------------------------ |
+| `container-name`       | Name for the Docker container                   | No       | `go-httpbin`                   |
+| `port`                 | Port to expose the service on                   | No       | `8080`                         |
+| `image`                | Docker image to use                             | No       | `ghcr.io/mccutchen/go-httpbin` |
+| `image-tag`            | Tag of the Docker image                         | No       | `latest`                       |
+| `use-host-network`     | Use host networking (true/false)                | No       | `false`                        |
+| `wait-timeout`         | Wait time for service ready (retries)           | No       | `60`                           |
+| `debug`                | Enable debug output (true/false)                | No       | `false`                        |
+| `cert-file-path`       | SSL certificate file path                       | No       | `<secure>/cert.pem`            |
+| `key-file-path`        | SSL private key file path                       | No       | `<secure>/key.pem`             |
+| `certificate-domains`  | Extra domains for SSL certificate               | No       | ``                             |
+| `skip-certificate`     | Skip SSL certificate generation                 | No       | `false`                        |
+| `docker-run-args`      | Extra Docker run arguments                      | No       | ``                             |
+| `install-deps`         | Whether to install dependencies                 | No       | `true`                         |
+| `go-version`           | Go version for building mkcert (if unavailable) | No       | `1.24`                         |
+| `skip-readiness-check` | Skip the built-in readiness check               | No       | `false`                        |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Outputs
 
-| Output | Description |
-|--------|-------------|
-| `container-name` | Name of the created container |
-| `service-url` | Base URL for accessing the service |
-| `host-gateway-ip` | Docker host gateway IP for container communication |
-| `ca-cert-path` | Path to the mkcert CA certificate (relative to workspace) |
-| `cert-file` | Path to the SSL certificate file |
-| `key-file` | Path to the SSL private key file |
-| `protocol` | Protocol used (http or https) |
+<!-- markdownlint-disable MD013 -->
+
+| Output            | Description                                               |
+| ----------------- | --------------------------------------------------------- |
+| `container-name`  | Name of the created container                             |
+| `service-url`     | Base URL for accessing the service                        |
+| `host-gateway-ip` | Docker host gateway IP for container communication        |
+| `ca-cert-path`    | Path to the mkcert CA certificate (relative to workspace) |
+| `cert-file`       | Path to the SSL certificate file                          |
+| `key-file`        | Path to the SSL private key file                          |
+| `protocol`        | Protocol used (http or https)                             |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Environment Variables
 
