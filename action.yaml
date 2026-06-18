@@ -165,11 +165,18 @@ runs:
       shell: bash
       # Impossible to incorporate SHA256 values with line length restrictions
       # yamllint disable rule:line-length
-      run: |
+      # This step writes a few documented exports to GITHUB_ENV
+      # (HOST_GATEWAY, PROTOCOL, MKCERT_CA_PATH, GO_HTTPBIN_URL; see the
+      # README "Environment Variables"). Some of these incorporate action
+      # inputs (e.g. port / network settings), so they are written using
+      # the multiline env-file form with a per-run random delimiter; that
+      # prevents newline- or delimiter-based injection of additional
+      # variables, which is what makes this github-env write safe.
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
 
         # Enable debug mode if requested
-        if [[ "${{ inputs.debug }}" == "true" ]]; then
+        if [[ "${INPUTS_DEBUG}" == "true" ]]; then
           set -x
         fi
 
@@ -188,14 +195,14 @@ runs:
         trap cleanup EXIT INT TERM
 
         # Set certificate paths - use secure temp dir by default
-        if [[ -n "${{ inputs.cert-file-path }}" ]]; then
-          CERT_FILE_PATH="${{ inputs.cert-file-path }}"
+        if [[ -n "${INPUTS_CERT_FILE_PATH}" ]]; then
+          CERT_FILE_PATH="${INPUTS_CERT_FILE_PATH}"
         else
           CERT_FILE_PATH="$SECURE_TEMP_DIR/localhost-cert.pem"
         fi
 
-        if [[ -n "${{ inputs.key-file-path }}" ]]; then
-          KEY_FILE_PATH="${{ inputs.key-file-path }}"
+        if [[ -n "${INPUTS_KEY_FILE_PATH}" ]]; then
+          KEY_FILE_PATH="${INPUTS_KEY_FILE_PATH}"
         else
           KEY_FILE_PATH="$SECURE_TEMP_DIR/localhost-key.pem"
         fi
@@ -205,7 +212,7 @@ runs:
 
         # Determine protocol based on certificate generation
         PROTOCOL="https"
-        if [[ "${{ inputs.skip-certificate }}" == "true" ]]; then
+        if [[ "${INPUTS_SKIP_CERTIFICATE}" == "true" ]]; then
           PROTOCOL="http"
           echo "Using HTTP protocol (SSL certificates disabled)"
         else
@@ -213,7 +220,7 @@ runs:
         fi
 
         # Install system dependencies if requested
-        if [[ "${{ inputs.install-deps }}" == "true" ]]; then
+        if [[ "${INPUTS_INSTALL_DEPS}" == "true" ]]; then
           echo "Installing dependencies..."
 
           # Install platform-specific NSS tools
@@ -308,22 +315,34 @@ runs:
         echo "Docker host gateway IP: $HOST_GATEWAY"
 
         # Setup local CA and certificates if not skipped
-        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+        if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
           echo "Setting up local CA and certificates..."
           mkcert -install
 
-          # Prepare certificate domains
-          CERT_DOMAINS="localhost 127.0.0.1 $HOST_GATEWAY"
-          if [[ -n "${{ inputs.certificate-domains }}" ]]; then
-            # Replace commas with spaces for mkcert compatibility
-            ADDITIONAL_DOMAINS="${{ inputs.certificate-domains }}"
-            ADDITIONAL_DOMAINS="${ADDITIONAL_DOMAINS//,/ }"
-            CERT_DOMAINS="$CERT_DOMAINS $ADDITIONAL_DOMAINS"
+          # Prepare certificate domains as an array so they are not
+          # subject to word-splitting or pathname globbing when passed
+          # to mkcert.
+          cert_domains=(localhost 127.0.0.1 "$HOST_GATEWAY")
+          if [[ -n "${INPUTS_CERTIFICATE_DOMAINS}" ]]; then
+            # Replace commas with spaces, then split into array elements
+            additional_domains="${INPUTS_CERTIFICATE_DOMAINS//,/ }"
+            read -r -a extra_domains <<< "$additional_domains"
+            for _domain in "${extra_domains[@]}"; do
+              # Reject flag-like values so a domain such as '-key-file'
+              # cannot be interpreted by mkcert as an option.
+              if [[ "$_domain" == -* ]]; then
+                echo "Error: invalid certificate domain '$_domain'" \
+                  "(must not start with '-') ❌" >&2
+                exit 1
+              fi
+              cert_domains+=("$_domain")
+            done
           fi
 
-          # Generate certificate for specified domains
+          # Generate certificate for specified domains. '--' terminates
+          # option parsing so domains are always treated as operands.
           mkcert -key-file "$KEY_FILE_PATH" \
-            -cert-file "$CERT_FILE_PATH" $CERT_DOMAINS
+            -cert-file "$CERT_FILE_PATH" -- "${cert_domains[@]}"
 
           # Install the CA certificate in the system trust store
           CA_ROOT=$(mkcert -CAROOT)
@@ -343,7 +362,7 @@ runs:
           chmod 644 "$GITHUB_WORKSPACE/mkcert-ca.pem"
 
           # Verify certificate files were created
-          if [[ "${{ inputs.debug }}" == "true" ]]; then
+          if [[ "${INPUTS_DEBUG}" == "true" ]]; then
             echo "=== Certificate files check ==="
             ls -la "$CERT_FILE_PATH" "$KEY_FILE_PATH"
             head -5 "$CERT_FILE_PATH"
@@ -361,7 +380,7 @@ runs:
           chmod 600 "$DOCKER_CERTS_DIR/localhost-key.pem"
 
           # Debug: Show certificate directory setup
-          if [[ "${{ inputs.debug }}" == "true" ]]; then
+          if [[ "${INPUTS_DEBUG}" == "true" ]]; then
             echo "=== Docker certificates directory ==="
             echo "DOCKER_CERTS_DIR: $DOCKER_CERTS_DIR"
             ls -la "$DOCKER_CERTS_DIR"
@@ -369,51 +388,53 @@ runs:
         fi
 
         # Clean up any existing container
-        docker rm -f "${{ inputs.container-name }}" 2>/dev/null || true
+        docker rm -f -- "${INPUTS_CONTAINER_NAME}" 2>/dev/null || true
 
         # Network mode and port mapping will be added directly to the array
 
         # Prepare Docker image with tag
-        DOCKER_IMAGE="${{ inputs.image }}:${{ inputs.image-tag }}"
+        DOCKER_IMAGE="${INPUTS_IMAGE}:${INPUTS_IMAGE_TAG}"
 
         # Run the container with custom command
         echo "Starting go-httpbin container..."
         # Prepare docker run arguments as an array to avoid eval and injection
-        DOCKER_RUN_ARGS=(--name "${{ inputs.container-name }}")
+        DOCKER_RUN_ARGS=(--name "${INPUTS_CONTAINER_NAME}")
 
         # Run container as host user to access mounted certificate files
         DOCKER_RUN_ARGS+=(--user "$(id -u):$(id -g)")
 
         # Add environment variables for HTTPS if certificates are enabled
-        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+        if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
           DOCKER_RUN_ARGS+=(-e "HTTPS_KEY_FILE=/tmp/localhost-key.pem")
           DOCKER_RUN_ARGS+=(-e "HTTPS_CERT_FILE=/tmp/localhost-cert.pem")
         fi
 
         # Add volume mounts if certificates are enabled
-        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+        if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
           DOCKER_RUN_ARGS+=(-v "$DOCKER_CERTS_DIR:/tmp")
         fi
 
         # Add network configuration
-        if [[ "${{ inputs.use-host-network }}" == "true" ]]; then
+        if [[ "${INPUTS_USE_HOST_NETWORK}" == "true" ]]; then
           DOCKER_RUN_ARGS+=(--network=host)
         else
-          DOCKER_RUN_ARGS+=(-p "${{ inputs.port }}:8080")
+          DOCKER_RUN_ARGS+=(-p "${INPUTS_PORT}:8080")
         fi
 
         # Add custom docker run arguments if specified
-        if [[ -n "${{ inputs.docker-run-args }}" ]]; then
-          # Parse docker-run-args with proper shell argument parsing
-          # This handles quotes, escaping, and preserves argument boundaries
+        if [[ -n "${INPUTS_DOCKER_RUN_ARGS}" ]]; then
+          # Split docker-run-args into separate tokens on spaces.
+          # IFS=' ' means only spaces delimit tokens (read also stops at
+          # the first newline), so shell quoting is not honoured: each
+          # space-separated token becomes its own argument. Every token
+          # is then validated below to reject command-injection,
+          # variable-expansion and redirection patterns before use.
 
           declare -a PARSED_ARGS
 
-          # Use bash read to safely parse shell arguments
-          # This safely parses shell arguments while handling quotes and escaping
           declare -a RAW_ARGS
-          if [[ -n "${{ inputs.docker-run-args }}" ]]; then
-            IFS=' ' read -ra RAW_ARGS <<< "${{ inputs.docker-run-args }}"
+          if [[ -n "${INPUTS_DOCKER_RUN_ARGS}" ]]; then
+            IFS=' ' read -r -a RAW_ARGS <<< "${INPUTS_DOCKER_RUN_ARGS}"
           fi
 
           # Check if array has elements before iterating to avoid empty array issues
@@ -466,7 +487,7 @@ runs:
           # Verify we parsed at least one argument if input was non-empty
           if [[ ${#PARSED_ARGS[@]} -eq 0 ]]; then
             echo "Error: Failed to parse any valid arguments from docker-run-args"
-            echo "Input was: ${{ inputs.docker-run-args }}"
+            echo "Input was: ${INPUTS_DOCKER_RUN_ARGS}"
             echo "Aborting for safety ❌" >&2
             exit 1
           fi
@@ -474,14 +495,14 @@ runs:
           # Add validated arguments to main Docker command array
           DOCKER_RUN_ARGS+=("${PARSED_ARGS[@]}")
 
-          if [[ "${{ inputs.debug }}" == "true" ]]; then
+          if [[ "${INPUTS_DEBUG}" == "true" ]]; then
             echo "Parsed docker-run-args: ${PARSED_ARGS[*]}"
           fi
         fi
 
         # Add detached mode and image
         DOCKER_RUN_ARGS+=(-d "${DOCKER_IMAGE}")
-        if [[ "${{ inputs.debug }}" == "true" ]]; then
+        if [[ "${INPUTS_DEBUG}" == "true" ]]; then
           echo "Docker command: docker run ${DOCKER_RUN_ARGS[*]}"
         fi
         docker run "${DOCKER_RUN_ARGS[@]}"
@@ -490,50 +511,103 @@ runs:
         sleep 5
 
         # Determine service URL based on network mode and protocol
-        if [[ "${{ inputs.use-host-network }}" == "true" ]]; then
+        if [[ "${INPUTS_USE_HOST_NETWORK}" == "true" ]]; then
           SERVICE_URL="${PROTOCOL}://localhost:8080"
         else
           # Use host gateway for standard mode for container-to-container communication
-          SERVICE_URL="${PROTOCOL}://$HOST_GATEWAY:${{ inputs.port }}"
+          SERVICE_URL="${PROTOCOL}://$HOST_GATEWAY:${INPUTS_PORT}"
         fi
 
         # Wait a moment for the container to start
         sleep 3
 
-        # Set outputs
-        echo "container-name=${{ inputs.container-name }}" >> "$GITHUB_OUTPUT"
-        echo "service-url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
-        echo "host-gateway-ip=$HOST_GATEWAY" >> "$GITHUB_OUTPUT"
-        echo "protocol=$PROTOCOL" >> "$GITHUB_OUTPUT"
+        # Set outputs using the multiline (heredoc) form with a
+        # per-run unpredictable delimiter so values cannot inject
+        # additional outputs via embedded newlines or a crafted
+        # delimiter line. The delimiter is sourced from /dev/urandom
+        # (via od/tr, no external network tools) so it cannot be made
+        # predictable through a caller-inherited RANDOM environment.
+        _delim="ghadelim-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        {
+          echo "container-name<<${_delim}"
+          echo "${INPUTS_CONTAINER_NAME}"
+          echo "${_delim}"
+          echo "service-url<<${_delim}"
+          echo "$SERVICE_URL"
+          echo "${_delim}"
+          echo "host-gateway-ip<<${_delim}"
+          echo "$HOST_GATEWAY"
+          echo "${_delim}"
+          echo "protocol<<${_delim}"
+          echo "$PROTOCOL"
+          echo "${_delim}"
+        } >> "$GITHUB_OUTPUT"
 
-        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
-          echo "ca-cert-path=mkcert-ca.pem" >> "$GITHUB_OUTPUT"
-          echo "cert-file=$CERT_FILE_PATH" >> "$GITHUB_OUTPUT"
-          echo "key-file=$KEY_FILE_PATH" >> "$GITHUB_OUTPUT"
+        if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
+          {
+            echo "ca-cert-path<<${_delim}"
+            echo "mkcert-ca.pem"
+            echo "${_delim}"
+            echo "cert-file<<${_delim}"
+            echo "$CERT_FILE_PATH"
+            echo "${_delim}"
+            echo "key-file<<${_delim}"
+            echo "$KEY_FILE_PATH"
+            echo "${_delim}"
+          } >> "$GITHUB_OUTPUT"
         else
           echo "ca-cert-path=" >> "$GITHUB_OUTPUT"
           echo "cert-file=" >> "$GITHUB_OUTPUT"
           echo "key-file=" >> "$GITHUB_OUTPUT"
         fi
 
-        # Also set environment variables for convenience
-        echo "HOST_GATEWAY=$HOST_GATEWAY" >> "$GITHUB_ENV"
-        echo "PROTOCOL=$PROTOCOL" >> "$GITHUB_ENV"
+        # Also export environment variables for convenience, using the
+        # multiline env-file form with the same per-run random delimiter
+        # so values cannot inject additional entries.
+        {
+          echo "HOST_GATEWAY<<${_delim}"
+          echo "$HOST_GATEWAY"
+          echo "${_delim}"
+          echo "PROTOCOL<<${_delim}"
+          echo "$PROTOCOL"
+          echo "${_delim}"
+        } >> "$GITHUB_ENV"
 
-        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
-          echo "MKCERT_CA_PATH=mkcert-ca.pem" >> "$GITHUB_ENV"
+        if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
+          {
+            echo "MKCERT_CA_PATH<<${_delim}"
+            echo "mkcert-ca.pem"
+            echo "${_delim}"
+          } >> "$GITHUB_ENV"
         fi
 
-        echo "GO_HTTPBIN_URL=$SERVICE_URL" >> "$GITHUB_ENV"
+        {
+          echo "GO_HTTPBIN_URL<<${_delim}"
+          echo "$SERVICE_URL"
+          echo "${_delim}"
+        } >> "$GITHUB_ENV"
 
         echo "=== go-httpbin setup completed successfully! ==="
         echo "Service URL: $SERVICE_URL"
         echo "Protocol: $PROTOCOL"
         echo "Host Gateway IP: $HOST_GATEWAY"
 
-        if [[ "${{ inputs.skip-certificate }}" != "true" ]]; then
+        if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
           echo "CA Certificate: mkcert-ca.pem (in workspace)"
         fi
+      env:
+        INPUTS_DEBUG: ${{ inputs.debug }}
+        INPUTS_CERT_FILE_PATH: ${{ inputs.cert-file-path }}
+        INPUTS_KEY_FILE_PATH: ${{ inputs.key-file-path }}
+        INPUTS_SKIP_CERTIFICATE: ${{ inputs.skip-certificate }}
+        INPUTS_INSTALL_DEPS: ${{ inputs.install-deps }}
+        INPUTS_CERTIFICATE_DOMAINS: ${{ inputs.certificate-domains }}
+        INPUTS_CONTAINER_NAME: ${{ inputs.container-name }}
+        INPUTS_IMAGE: ${{ inputs.image }}
+        INPUTS_IMAGE_TAG: ${{ inputs.image-tag }}
+        INPUTS_USE_HOST_NETWORK: ${{ inputs.use-host-network }}
+        INPUTS_PORT: ${{ inputs.port }}
+        INPUTS_DOCKER_RUN_ARGS: ${{ inputs.docker-run-args }}
 
     - name: 'Wait for go-httpbin service readiness'
       if: ${{ inputs.skip-readiness-check != 'true' }}
