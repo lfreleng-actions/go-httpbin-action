@@ -9,6 +9,10 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "Chore"
+      prefix: "CI(actions)"
+    # Wait before opening a bump PR so we don't churn on a release
+    # that gets retracted or superseded shortly after it ships.
+    # This is required to satisfy the zizmor workflow auditing tool.
     cooldown:
       default-days: 7
+    open-pull-requests-limit: 15
