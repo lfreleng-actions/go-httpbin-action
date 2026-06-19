@@ -27,11 +27,22 @@ jobs:
       contents: read
     timeout-minutes: 30
     steps:
-      - name: 'Harden Runner'
+      # Load the egress allow-list out-of-band from the
+      # organisation's .github repository and publish it as
+      # $CONNECTION_ALLOW_LIST for the harden-runner step below.
+      # yamllint disable-line rule:line-length
+      - uses: lfreleng-actions/harden-runner-block-action@42663a22f7abe31521cbc6120901353a4b2849bc  # v0.2.0
+        with:
+          config: '@18d9c4446bea555d0783e850f6d295f844fe8f67'  # v0.1.1
+
+      # Harden the runner with the just-loaded allow-list.
+      - name: 'Harden runner (block)'
         # yamllint disable-line rule:line-length
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
         with:
-          egress-policy: audit
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
 
       - name: 'Checkout local action'
         # yamllint disable-line rule:line-length

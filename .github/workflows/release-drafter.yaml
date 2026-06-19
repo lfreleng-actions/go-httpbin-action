@@ -25,11 +25,22 @@ jobs:
     runs-on: 'ubuntu-latest'
     timeout-minutes: 3
     steps:
-      # Harden the runner used by this workflow
+      # Load the egress allow-list out-of-band from the
+      # organisation's .github repository and publish it as
+      # $CONNECTION_ALLOW_LIST for the harden-runner step below.
       # yamllint disable-line rule:line-length
-      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      - uses: lfreleng-actions/harden-runner-block-action@42663a22f7abe31521cbc6120901353a4b2849bc  # v0.2.0
         with:
-          egress-policy: 'audit'
+          config: '@18d9c4446bea555d0783e850f6d295f844fe8f67'  # v0.1.1
+
+      # Harden the runner with the just-loaded allow-list.
+      - name: 'Harden runner (block)'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
 
       # yamllint disable-line rule:line-length
       - uses: release-drafter/release-drafter@693d20e7c1ce1a81d3a41962f85914253b518449 # v7.3.1

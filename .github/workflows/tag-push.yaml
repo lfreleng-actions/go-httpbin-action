@@ -25,11 +25,22 @@ jobs:
     outputs:
       tag: "${{ steps.tag_validate.outputs.tag_name }}"
     steps:
-      # Harden the runner used by this workflow
+      # Load the egress allow-list out-of-band from the
+      # organisation's .github repository and publish it as
+      # $CONNECTION_ALLOW_LIST for the harden-runner step below.
       # yamllint disable-line rule:line-length
-      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+      - uses: lfreleng-actions/harden-runner-block-action@42663a22f7abe31521cbc6120901353a4b2849bc  # v0.2.0
         with:
-          egress-policy: audit
+          config: '@18d9c4446bea555d0783e850f6d295f844fe8f67'  # v0.1.1
+
+      # Harden the runner with the just-loaded allow-list.
+      - name: 'Harden runner (block)'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
 
       # yamllint disable-line rule:line-length
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -56,11 +67,22 @@ jobs:
       contents: write
     timeout-minutes: 5
     steps:
-      # Harden the runner used by this workflow
+      # Load the egress allow-list out-of-band from the
+      # organisation's .github repository and publish it as
+      # $CONNECTION_ALLOW_LIST for the harden-runner step below.
       # yamllint disable-line rule:line-length
-      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+      - uses: lfreleng-actions/harden-runner-block-action@42663a22f7abe31521cbc6120901353a4b2849bc  # v0.2.0
         with:
-          egress-policy: audit
+          config: '@18d9c4446bea555d0783e850f6d295f844fe8f67'  # v0.1.1
+
+      # Harden the runner with the just-loaded allow-list.
+      - name: 'Harden runner (block)'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
 
       # yamllint disable-line rule:line-length
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
