@@ -40,7 +40,7 @@ jobs:
       # yamllint disable-line rule:line-length
       - uses: lfreleng-actions/harden-runner-block-action@42663a22f7abe31521cbc6120901353a4b2849bc  # v0.2.0
         with:
-          config: '@18d9c4446bea555d0783e850f6d295f844fe8f67'  # v0.1.1
+          config: '@aa81113fe43792f29f939c79ea47a04801cf5342'  # v0.4.1
 
       # Harden the runner with the just-loaded allow-list.
       - name: 'Harden runner (block)'
@@ -133,18 +133,12 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔌 Container-to-Host Networking"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Testing from another container (simulates http-api-tool-docker):"
-
-          docker run --rm alpine sh -c "
-            apk add --no-cache curl >/dev/null 2>&1
-            echo -n 'Gateway IP (${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080)... '
-            if curl -s -k --max-time 2 https://${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080/get > /dev/null 2>&1; then
-              echo '✅'
-            else
-              echo '❌'
-              exit 1
-            fi
-          "
+          # Container-to-host reachability via the gateway IP is exercised
+          # for real by the http-api-tool-docker steps below (each runs in a
+          # container and connects to the service). We avoid a throwaway
+          # "docker run alpine" probe here so service setup does not depend on
+          # a Docker Hub pull, which is unreliable on egress-hardened runners.
+          echo "Covered by the http-api-tool-docker steps that follow."
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 

@@ -309,9 +309,36 @@ runs:
           echo "Successfully installed mkcert: $INSTALLED_VERSION"
         fi
 
-        # Get Docker host gateway IP for container-to-host communication
-        HOST_GATEWAY=$(docker run --rm alpine sh -c \
-          "ip route | grep '^default' | cut -d' ' -f3")
+        # Get Docker host gateway IP for container-to-host communication.
+        # Read it directly from the default bridge network rather than
+        # pulling an image and running a container. Pulling from Docker Hub
+        # is unreliable under egress-hardened runners (the CDN/registry IPs
+        # rotate and may not match an allow-listed hostname), and it adds an
+        # unnecessary network dependency to service setup.
+        # Emit one gateway per line and select the first IPv4 address, so a
+        # bridge with multiple IPAM configs (e.g. IPv4 + IPv6) cannot yield a
+        # concatenated, invalid value.
+        HOST_GATEWAY=$(docker network inspect bridge \
+          --format '{{range .IPAM.Config}}{{println .Gateway}}{{end}}' \
+          2>/dev/null | grep -Em1 '^[0-9]+(\.[0-9]+){3}$' || true)
+        if [[ -z "$HOST_GATEWAY" ]]; then
+          # Fall back to the docker0 bridge interface address on the host;
+          # the interface's own IPv4 address is the bridge gateway. Validate
+          # it as IPv4 (mirroring the bridge lookup) so transient route/link
+          # state text such as 'linkdown' cannot yield a non-IP value. The
+          # '|| true' keeps a missing docker0 interface (rootless/custom
+          # setups) from tripping 'set -e' via pipefail, so the explicit
+          # guard below reports a clear error instead.
+          HOST_GATEWAY=$(ip -4 -o addr show docker0 2>/dev/null \
+            | awk '{print $4}' | cut -d/ -f1 \
+            | grep -Em1 '^[0-9]+(\.[0-9]+){3}$' || true)
+        fi
+        if [[ -z "$HOST_GATEWAY" ]]; then
+          echo "ERROR: Could not determine the Docker host gateway IP" >&2
+          echo "Inspected the default 'bridge' network and the docker0" >&2
+          echo "interface; both yielded no IPv4 gateway address." >&2
+          exit 1
+        fi
         echo "Docker host gateway IP: $HOST_GATEWAY"
 
         # Setup local CA and certificates if not skipped
