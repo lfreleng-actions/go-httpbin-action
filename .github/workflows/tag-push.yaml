@@ -11,6 +11,13 @@ on:
     tags:
       - '**'
 
+# Serialise tag/release promotion runs. Do NOT cancel in-progress
+# runs: aborting a release promotion mid-flight could leave a draft
+# release in an inconsistent state.
+concurrency:
+  group: 'tag-push-${{ github.ref }}'
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:
@@ -64,7 +71,7 @@ jobs:
     needs: validate_tag
     runs-on: 'ubuntu-latest'
     permissions:
-      contents: write
+      contents: write  # Required to promote/publish the draft release.
     timeout-minutes: 5
     steps:
       # Load the egress allow-list out-of-band from the
