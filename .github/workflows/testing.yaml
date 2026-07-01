@@ -40,7 +40,7 @@ jobs:
       # yamllint disable-line rule:line-length
       - uses: lfreleng-actions/harden-runner-block-action@42663a22f7abe31521cbc6120901353a4b2849bc  # v0.2.0
         with:
-          config: '@18d9c4446bea555d0783e850f6d295f844fe8f67'  # v0.1.1
+          config: '@aa81113fe43792f29f939c79ea47a04801cf5342'  # v0.4.1
 
       # Harden the runner with the just-loaded allow-list.
       - name: 'Harden runner (block)'
@@ -53,6 +53,8 @@ jobs:
 
       - name: 'Checkout repository'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       # =================================================================
       # BASIC HTTPS TESTS
@@ -71,10 +73,10 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔍 Service Configuration"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Service URL: ${{ steps.httpbin-basic.outputs.service-url }}"
-          echo "Host Gateway IP: ${{ steps.httpbin-basic.outputs.host-gateway-ip }}"
-          echo "Protocol: ${{ steps.httpbin-basic.outputs.protocol }}"
-          echo "Container: ${{ steps.httpbin-basic.outputs.container-name }}"
+          echo "Service URL: ${STEPS_HTTPBIN_BASIC_OUTPUTS_SERVICE_URL}"
+          echo "Host Gateway IP: ${STEPS_HTTPBIN_BASIC_OUTPUTS_HOST_GATEWAY_IP}"
+          echo "Protocol: ${STEPS_HTTPBIN_BASIC_OUTPUTS_PROTOCOL}"
+          echo "Container: ${STEPS_HTTPBIN_BASIC_OUTPUTS_CONTAINER_NAME}"
           echo ""
 
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -89,12 +91,12 @@ jobs:
           fi
           echo ""
 
-          STATUS=$(docker inspect ${{ steps.httpbin-basic.outputs.container-name }} --format='{{.State.Status}}' 2>/dev/null || echo "unknown")
+          STATUS=$(docker inspect "${STEPS_HTTPBIN_BASIC_OUTPUTS_CONTAINER_NAME}" --format='{{.State.Status}}' 2>/dev/null || echo "unknown")
           if [ "$STATUS" = "running" ]; then
             echo "✅ Container status: $STATUS"
           else
             echo "❌ Container status: $STATUS"
-            docker logs ${{ steps.httpbin-basic.outputs.container-name }} 2>&1 | tail -10
+            docker logs "${STEPS_HTTPBIN_BASIC_OUTPUTS_CONTAINER_NAME}" 2>&1 | tail -10
             exit 1
           fi
           echo ""
@@ -112,16 +114,16 @@ jobs:
           fi
 
           # Test gateway IP (should work for container-to-container communication)
-          echo -n "Testing gateway IP (${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080)... "
-          if curl -s -k --max-time 3 https://${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080/get > /dev/null 2>&1; then
+          echo -n "Testing gateway IP (${STEPS_HTTPBIN_BASIC_OUTPUTS_HOST_GATEWAY_IP}:8080)... "
+          if curl -s -k --max-time 3 "https://${STEPS_HTTPBIN_BASIC_OUTPUTS_HOST_GATEWAY_IP}:8080/get" > /dev/null 2>&1; then
             echo "✅"
           else
             echo "❌"
           fi
 
           # Test service URL (this is what the action outputs)
-          echo -n "Testing service URL (${{ steps.httpbin-basic.outputs.service-url }})... "
-          if curl -s -k --max-time 3 ${{ steps.httpbin-basic.outputs.service-url }}/get > /dev/null 2>&1; then
+          echo -n "Testing service URL (${STEPS_HTTPBIN_BASIC_OUTPUTS_SERVICE_URL})... "
+          if curl -s -k --max-time 3 "${STEPS_HTTPBIN_BASIC_OUTPUTS_SERVICE_URL}/get" > /dev/null 2>&1; then
             echo "✅"
           else
             echo "❌"
@@ -133,20 +135,19 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🔌 Container-to-Host Networking"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "Testing from another container (simulates http-api-tool-docker):"
-
-          docker run --rm alpine sh -c "
-            apk add --no-cache curl >/dev/null 2>&1
-            echo -n 'Gateway IP (${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080)... '
-            if curl -s -k --max-time 2 https://${{ steps.httpbin-basic.outputs.host-gateway-ip }}:8080/get > /dev/null 2>&1; then
-              echo '✅'
-            else
-              echo '❌'
-              exit 1
-            fi
-          "
+          # Container-to-host reachability via the gateway IP is exercised
+          # for real by the http-api-tool-docker steps below (each runs in a
+          # container and connects to the service). We avoid a throwaway
+          # "docker run alpine" probe here so service setup does not depend on
+          # a Docker Hub pull, which is unreliable on egress-hardened runners.
+          echo "Covered by the http-api-tool-docker steps that follow."
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        env:
+          STEPS_HTTPBIN_BASIC_OUTPUTS_SERVICE_URL: ${{ steps.httpbin-basic.outputs.service-url }}
+          STEPS_HTTPBIN_BASIC_OUTPUTS_HOST_GATEWAY_IP: ${{ steps.httpbin-basic.outputs.host-gateway-ip }}
+          STEPS_HTTPBIN_BASIC_OUTPUTS_PROTOCOL: ${{ steps.httpbin-basic.outputs.protocol }}
+          STEPS_HTTPBIN_BASIC_OUTPUTS_CONTAINER_NAME: ${{ steps.httpbin-basic.outputs.container-name }}
 
       - name: 'Basic HTTPS Test - Simple GET request'
         uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9 # v1.0.7
@@ -213,8 +214,10 @@ jobs:
 
       - name: 'Stop basic HTTPS service'
         run: |
-          docker stop ${{ steps.httpbin-basic.outputs.container-name }}
-          docker rm ${{ steps.httpbin-basic.outputs.container-name }}
+          docker stop "${STEPS_HTTPBIN_BASIC_OUTPUTS_CONTAINER_NAME}"
+          docker rm "${STEPS_HTTPBIN_BASIC_OUTPUTS_CONTAINER_NAME}"
+        env:
+          STEPS_HTTPBIN_BASIC_OUTPUTS_CONTAINER_NAME: ${{ steps.httpbin-basic.outputs.container-name }}
 
       # =================================================================
       # HTTP (NO SSL) TESTS
@@ -261,8 +264,10 @@ jobs:
 
       - name: 'Stop HTTP service'
         run: |
-          docker stop ${{ steps.httpbin-http.outputs.container-name }}
-          docker rm ${{ steps.httpbin-http.outputs.container-name }}
+          docker stop "${STEPS_HTTPBIN_HTTP_OUTPUTS_CONTAINER_NAME}"
+          docker rm "${STEPS_HTTPBIN_HTTP_OUTPUTS_CONTAINER_NAME}"
+        env:
+          STEPS_HTTPBIN_HTTP_OUTPUTS_CONTAINER_NAME: ${{ steps.httpbin-http.outputs.container-name }}
 
       # =================================================================
       # CUSTOM PORT TESTS
@@ -312,7 +317,9 @@ jobs:
 
       - name: 'Stop custom port service'
         run: |
-          docker stop ${{ steps.httpbin-custom-port.outputs.container-name }}
+          docker stop "${STEPS_HTTPBIN_CUSTOM_PORT_OUTPUTS_CONTAINER_NAME}"
+        env:
+          STEPS_HTTPBIN_CUSTOM_PORT_OUTPUTS_CONTAINER_NAME: ${{ steps.httpbin-custom-port.outputs.container-name }}
 
       # =================================================================
       # HOST NETWORK TESTS
@@ -358,7 +365,9 @@ jobs:
 
       - name: 'Stop host network service'
         run: |
-          docker stop ${{ steps.httpbin-host-network.outputs.container-name }}
+          docker stop "${STEPS_HTTPBIN_HOST_NETWORK_OUTPUTS_CONTAINER_NAME}"
+        env:
+          STEPS_HTTPBIN_HOST_NETWORK_OUTPUTS_CONTAINER_NAME: ${{ steps.httpbin-host-network.outputs.container-name }}
 
       # =================================================================
       # ADVANCED FEATURES TESTS
@@ -713,7 +722,9 @@ jobs:
 
       - name: 'Stop comprehensive test service'
         run: |
-          docker stop ${{ steps.httpbin-comprehensive.outputs.container-name }}
+          docker stop "${STEPS_HTTPBIN_COMPREHENSIVE_OUTPUTS_CONTAINER_NAME}"
+        env:
+          STEPS_HTTPBIN_COMPREHENSIVE_OUTPUTS_CONTAINER_NAME: ${{ steps.httpbin-comprehensive.outputs.container-name }}
 
       # =================================================================
       # ERROR HANDLING AND EDGE CASES TESTS
@@ -777,4 +788,6 @@ jobs:
         run: |
           echo "🧪 All test scenarios completed!"
           echo "Stopping final test service..."
-          docker stop ${{ steps.httpbin-error.outputs.container-name }}
+          docker stop "${STEPS_HTTPBIN_ERROR_OUTPUTS_CONTAINER_NAME}"
+        env:
+          STEPS_HTTPBIN_ERROR_OUTPUTS_CONTAINER_NAME: ${{ steps.httpbin-error.outputs.container-name }}
