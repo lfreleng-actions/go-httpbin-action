@@ -29,12 +29,12 @@ A GitHub Action that sets up a local
 steps:
   # Start the go-httpbin container with built-in readiness check
   - name: Setup go-httpbin
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
     id: httpbin
 
   # Testing (the action includes built-in readiness check)
   - name: Test go-httpbin endpoint
-    uses: lfreleng-actions/http-api-tool-docker@v0.1.0
+    uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
     with:
       url: "${{ steps.httpbin.outputs.service-url }}/get"
       service_name: "go-httpbin GET endpoint"
@@ -49,7 +49,7 @@ steps:
 ```yaml
 steps:
   - name: Setup go-httpbin with custom configuration
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
     id: httpbin
     with:
       container-name: 'my-httpbin'
@@ -61,7 +61,7 @@ steps:
       docker-run-args: '--cpus=0.5 --memory=256m'
 
   - name: Test with proper SSL verification
-    uses: lfreleng-actions/http-api-tool-docker@main
+    uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
     with:
       url: "${{ steps.httpbin.outputs.service-url }}/get"
       service_name: "go-httpbin SSL verified endpoint"
@@ -77,13 +77,13 @@ steps:
 ```yaml
 steps:
   - name: Setup go-httpbin without SSL
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
     id: httpbin
     with:
       skip-certificate: 'true'
 
   - name: Test HTTP endpoint
-    uses: lfreleng-actions/http-api-tool-docker@main
+    uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
     with:
       url: "${{ steps.httpbin.outputs.service-url }}/get"
       service_name: "go-httpbin HTTP endpoint"
@@ -98,14 +98,14 @@ steps:
 ```yaml
 steps:
   - name: Setup go-httpbin without readiness check
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
     id: httpbin
     with:
       skip-readiness-check: 'true'
 
   # Handle readiness checking manually
   - name: Custom readiness check
-    uses: lfreleng-actions/http-api-tool-docker@main
+    uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
     with:
       url: "${{ steps.httpbin.outputs.service-url }}/get"
       service_name: "Custom readiness check"
@@ -171,7 +171,7 @@ The action also sets the following environment variables for convenience:
 Uses Docker port mapping to expose the service on the specified port:
 
 ```yaml
-- uses: lfreleng/setup-go-httpbin@v1
+- uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
   with:
     port: '8080'
 ```
@@ -191,7 +191,7 @@ container-to-container networking.
 Uses Docker host networking for direct access:
 
 ```yaml
-- uses: lfreleng/setup-go-httpbin@v1
+- uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
   with:
     use-host-network: 'true'
 ```
@@ -219,7 +219,7 @@ completes.
 
 ```yaml
 # With proper SSL verification using http-api-tool-docker
-- uses: lfreleng-actions/http-api-tool-docker@main
+- uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
   with:
     url: "${{ steps.httpbin.outputs.service-url }}/get"
     service_name: "API Test"
@@ -228,7 +228,7 @@ completes.
     expected_http_code: 200
 
 # Without SSL verification (for testing)
-- uses: lfreleng-actions/http-api-tool-docker@main
+- uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
   with:
     url: "${{ steps.httpbin.outputs.service-url }}/get"
     service_name: "API Test"
@@ -245,14 +245,14 @@ jobs:
   test-api:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
         id: httpbin
 
       - name: Test GET endpoint
-        uses: lfreleng-actions/http-api-tool-docker@main
+        uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
         with:
           url: "${{ steps.httpbin.outputs.service-url }}/get"
           service_name: "GET endpoint test"
@@ -263,7 +263,7 @@ jobs:
           debug: true
 
       - name: Test POST endpoint
-        uses: lfreleng-actions/http-api-tool-docker@main
+        uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
         with:
           url: "${{ steps.httpbin.outputs.service-url }}/post"
           service_name: "POST endpoint test"
@@ -275,7 +275,7 @@ jobs:
           regex: '"json"'
 
       - name: Test authentication
-        uses: lfreleng-actions/http-api-tool-docker@main
+        uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
         with:
           url: "${{ steps.httpbin.outputs.service-url }}/basic-auth/user/pass"
           service_name: "Auth endpoint test"
@@ -292,10 +292,10 @@ jobs:
   test-api-tool:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
         id: httpbin
 
       - name: Test custom API tool
@@ -312,14 +312,14 @@ jobs:
   test-error-cases:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
         id: httpbin
 
       - name: Test 404 handling
-        uses: lfreleng-actions/http-api-tool-docker@main
+        uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
         with:
           url: "${{ steps.httpbin.outputs.service-url }}/status/404"
           service_name: "404 endpoint test"
@@ -328,7 +328,7 @@ jobs:
           debug: true
 
       - name: Test timeout handling
-        uses: lfreleng-actions/http-api-tool-docker@main
+        uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
         with:
           url: "${{ steps.httpbin.outputs.service-url }}/delay/3"
           service_name: "Timeout test"
@@ -339,7 +339,7 @@ jobs:
           debug: true
 
       - name: Test large response
-        uses: lfreleng-actions/http-api-tool-docker@main
+        uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
         with:
           url: "${{ steps.httpbin.outputs.service-url }}/bytes/2048"
           service_name: "Large response test"
@@ -355,10 +355,10 @@ jobs:
   test-docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
         id: httpbin
         with:
           use-host-network: 'true'  # Better for container-to-container communication
@@ -375,10 +375,10 @@ jobs:
   performance-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
         id: httpbin
         with:
           debug: 'false'  # Reduce noise during performance tests
@@ -386,7 +386,7 @@ jobs:
           docker-run-args: '--cpus=1.0 --memory=512m'  # Resource limits
 
       - name: Test response time limits
-        uses: lfreleng-actions/http-api-tool-docker@main
+        uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
         with:
           url: "${{ steps.httpbin.outputs.service-url }}/delay/1"
           service_name: "Performance test"
@@ -402,7 +402,7 @@ jobs:
 ### Enable Debug Mode
 
 ```yaml
-- uses: lfreleng/setup-go-httpbin@v1
+- uses: lfreleng-actions/go-httpbin-action@8b66d1d684264a26f4b087c94485aeb2be45cea7  # v0.1.5
   with:
     debug: 'true'
 ```
@@ -434,7 +434,7 @@ This will provide verbose output including:
     docker logs "${{ steps.httpbin.outputs.container-name }}"
 
 - name: Test connectivity with http-api-tool-docker
-  uses: lfreleng-actions/http-api-tool-docker@main
+  uses: lfreleng-actions/http-api-tool-docker@12a062c2289831b79166269340ffb44fa2c113e9  # v1.0.7
   with:
     url: "${{ steps.httpbin.outputs.service-url }}/"
     service_name: "Debug connectivity test"

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
+
+# Keep the 80-column limit for prose, but exempt code blocks and
+# tables: usage examples pin actions to full commit SHAs (per the
+# organisation's SHA-pinning convention), and those lines cannot
+# fit within 80 columns.
+MD013:
+  line_length: 80
+  code_blocks: false
+  tables: false
