@@ -29,7 +29,7 @@ A GitHub Action that sets up a local
 steps:
   # Start the go-httpbin container with built-in readiness check
   - name: Setup go-httpbin
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/setup-go-httpbin@v0.1.5
     id: httpbin
 
   # Testing (the action includes built-in readiness check)
@@ -49,7 +49,7 @@ steps:
 ```yaml
 steps:
   - name: Setup go-httpbin with custom configuration
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/setup-go-httpbin@v0.1.5
     id: httpbin
     with:
       container-name: 'my-httpbin'
@@ -77,7 +77,7 @@ steps:
 ```yaml
 steps:
   - name: Setup go-httpbin without SSL
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/setup-go-httpbin@v0.1.5
     id: httpbin
     with:
       skip-certificate: 'true'
@@ -98,7 +98,7 @@ steps:
 ```yaml
 steps:
   - name: Setup go-httpbin without readiness check
-    uses: lfreleng/setup-go-httpbin@v1
+    uses: lfreleng-actions/setup-go-httpbin@v0.1.5
     id: httpbin
     with:
       skip-readiness-check: 'true'
@@ -171,7 +171,7 @@ The action also sets the following environment variables for convenience:
 Uses Docker port mapping to expose the service on the specified port:
 
 ```yaml
-- uses: lfreleng/setup-go-httpbin@v1
+- uses: lfreleng-actions/setup-go-httpbin@v0.1.5
   with:
     port: '8080'
 ```
@@ -191,7 +191,7 @@ container-to-container networking.
 Uses Docker host networking for direct access:
 
 ```yaml
-- uses: lfreleng/setup-go-httpbin@v1
+- uses: lfreleng-actions/setup-go-httpbin@v0.1.5
   with:
     use-host-network: 'true'
 ```
@@ -248,7 +248,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/setup-go-httpbin@v0.1.5
         id: httpbin
 
       - name: Test GET endpoint
@@ -295,7 +295,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/setup-go-httpbin@v0.1.5
         id: httpbin
 
       - name: Test custom API tool
@@ -315,7 +315,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/setup-go-httpbin@v0.1.5
         id: httpbin
 
       - name: Test 404 handling
@@ -358,7 +358,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/setup-go-httpbin@v0.1.5
         id: httpbin
         with:
           use-host-network: 'true'  # Better for container-to-container communication
@@ -378,7 +378,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup go-httpbin
-        uses: lfreleng/setup-go-httpbin@v1
+        uses: lfreleng-actions/setup-go-httpbin@v0.1.5
         id: httpbin
         with:
           debug: 'false'  # Reduce noise during performance tests
@@ -402,7 +402,7 @@ jobs:
 ### Enable Debug Mode
 
 ```yaml
-- uses: lfreleng/setup-go-httpbin@v1
+- uses: lfreleng-actions/setup-go-httpbin@v0.1.5
   with:
     debug: 'true'
 ```
