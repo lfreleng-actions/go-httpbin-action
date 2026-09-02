@@ -31,7 +31,7 @@ jobs:
       # organisation's .github repository and publish it as
       # $CONNECTION_ALLOW_LIST for the harden-runner step below.
       # yamllint disable-line rule:line-length
-      - uses: lfreleng-actions/harden-runner-block-action@d86087ddc1c2d27182a886ec788d39b88201c8ed  # v0.3.0
+      - uses: lfreleng-actions/harden-runner-block-action@805eedb0508c07714b61887a2b87a5c4bbeff22a  # v0.12.1
         with:
           config: '@aa81113fe43792f29f939c79ea47a04801cf5342'  # v0.4.1
 
