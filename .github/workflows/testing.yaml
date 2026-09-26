@@ -51,17 +51,12 @@ jobs:
           allowed-endpoints: >
             ${{ env.CONNECTION_ALLOW_LIST }}
 
-      - name: 'Checkout repository'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       # =================================================================
       # BASIC HTTPS TESTS
       # =================================================================
       - name: 'Setup go-httpbin HTTPS service for basic tests'
         id: httpbin-basic
-        uses: ./
+        uses: $/
         with:
           debug: 'true'
           # Temporarily decouple go-httpbin-action from http-api-tool-docker
@@ -224,7 +219,7 @@ jobs:
       # =================================================================
       - name: 'Setup go-httpbin HTTP service (no SSL)'
         id: httpbin-http
-        uses: ./
+        uses: $/
         with:
           skip-certificate: 'true'
           debug: 'true'
@@ -274,7 +269,7 @@ jobs:
       # =================================================================
       - name: 'Setup go-httpbin with custom port (skip built-in readiness check)'
         id: httpbin-custom-port
-        uses: ./
+        uses: $/
         with:
           port: '9090'
           debug: 'true'
@@ -326,7 +321,7 @@ jobs:
       # =================================================================
       - name: 'Setup go-httpbin with host network'
         id: httpbin-host-network
-        uses: ./
+        uses: $/
         with:
           use-host-network: 'true'
           debug: 'true'
@@ -374,7 +369,7 @@ jobs:
       # =================================================================
       - name: 'Setup go-httpbin with advanced features'
         id: httpbin-advanced
-        uses: ./
+        uses: $/
         with:
           container-name: 'custom-httpbin'
           port: '8888'
@@ -470,7 +465,7 @@ jobs:
       # =================================================================
       - name: 'Setup go-httpbin HTTPS service for comprehensive tests'
         id: httpbin-comprehensive
-        uses: ./
+        uses: $/
         with:
           debug: 'true'
           certificate-domains: 'api.example.com,test.local'
@@ -731,7 +726,7 @@ jobs:
       # =================================================================
       - name: 'Setup go-httpbin service for error handling tests'
         id: httpbin-error
-        uses: ./
+        uses: $/
         with:
           debug: 'true'
 
