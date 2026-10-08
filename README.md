@@ -128,8 +128,8 @@ steps:
 | `use-host-network`     | Use host networking (true/false)                | No       | `false`                        |
 | `wait-timeout`         | Wait time for service ready (retries)           | No       | `60`                           |
 | `debug`                | Enable debug output (true/false)                | No       | `false`                        |
-| `cert-file-path`       | SSL certificate file path                       | No       | `<secure>/cert.pem`            |
-| `key-file-path`        | SSL private key file path                       | No       | `<secure>/key.pem`             |
+| `cert-file-path`       | SSL certificate file path                       | No       | `<certs>/localhost-cert.pem`   |
+| `key-file-path`        | SSL private key file path                       | No       | `<certs>/localhost-key.pem`    |
 | `certificate-domains`  | Extra domains for SSL certificate               | No       | ``                             |
 | `skip-certificate`     | Skip SSL certificate generation                 | No       | `false`                        |
 | `docker-run-args`      | Extra Docker run arguments                      | No       | ``                             |
@@ -143,15 +143,15 @@ steps:
 
 <!-- markdownlint-disable MD013 -->
 
-| Output            | Description                                               |
-| ----------------- | --------------------------------------------------------- |
-| `container-name`  | Name of the created container                             |
-| `service-url`     | Base URL for accessing the service                        |
-| `host-gateway-ip` | Docker host gateway IP for container communication        |
-| `ca-cert-path`    | Path to the mkcert CA certificate (relative to workspace) |
-| `cert-file`       | Path to the SSL certificate file                          |
-| `key-file`        | Path to the SSL private key file                          |
-| `protocol`        | Protocol used (http or https)                             |
+| Output            | Description                                        |
+| ----------------- | -------------------------------------------------- |
+| `container-name`  | Name of the created container                      |
+| `service-url`     | Base URL for accessing the service                 |
+| `host-gateway-ip` | Docker host gateway IP for container communication |
+| `ca-cert-path`    | Absolute path to the mkcert CA certificate         |
+| `cert-file`       | Absolute path to the SSL certificate file          |
+| `key-file`        | Absolute path to the SSL private key file          |
+| `protocol`        | Protocol used (http or https)                      |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -161,7 +161,8 @@ The action also sets the following environment variables for convenience:
 
 - `HOST_GATEWAY`: Docker host gateway IP
 - `PROTOCOL`: Protocol in use (http or https)
-- `MKCERT_CA_PATH`: Path to the mkcert CA certificate (when using HTTPS)
+- `MKCERT_CA_PATH`: Absolute path to the mkcert CA certificate (when using
+  HTTPS)
 - `GO_HTTPBIN_URL`: Base URL of the running service
 
 ## Network Modes
@@ -210,10 +211,17 @@ The action automatically:
 3. Installs the CA certificate in the system trust store
 4. Provides paths to certificates for manual SSL verification
 
-**Security Note**: The action stores certificates in secure temporary
-directories with restricted permissions (700) rather than world-readable `/tmp`
-directories. The secure directories receive automatic cleanup when the action
-completes.
+**Security Note**: By default the action writes the certificate, the private
+key and a copy of the CA certificate to `<certs>`, a new directory under
+`$RUNNER_TEMP` with restricted permissions (700). The private key has mode 600,
+and the action writes nothing to the workspace. The directory outlives the
+action, so later steps can read the files that the `ca-cert-path`, `cert-file`
+and `key-file` outputs name; the runner empties `$RUNNER_TEMP` when the job
+ends.
+
+The outputs are absolute paths, so they work from any working directory. When
+you pass one to a Docker container action through `with:`, the runner rewrites
+it to the matching path under `/github/runner_temp` inside the container.
 
 ### Using with SSL Verification
 
@@ -446,7 +454,9 @@ This will provide verbose output including:
 - name: Check certificates
   run: |
     # Check certificates
-    ls -la /tmp/localhost*pem
+    ls -la "${{ steps.httpbin.outputs.cert-file }}" \
+      "${{ steps.httpbin.outputs.key-file }}" \
+      "${{ steps.httpbin.outputs.ca-cert-path }}"
     openssl x509 -in "${{ steps.httpbin.outputs.cert-file }}" -text \
       -noout | head -10
 ```

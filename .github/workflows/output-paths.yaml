@@ -1,0 +1,129 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
+
+name: 'Output Path Tests 📂'
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  output-paths:
+    name: 'Certificate Output Paths'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      # Load the egress allow-list out-of-band from the
+      # organisation's .github repository and publish it as
+      # $CONNECTION_ALLOW_LIST for the harden-runner step below.
+      # yamllint disable-line rule:line-length
+      - uses: lfreleng-actions/harden-runner-block-action@a32eb064a1188f6b0f15d2c0c0381efe54b0dd22  # v0.12.2
+        with:
+          config: '@aa81113fe43792f29f939c79ea47a04801cf5342'  # v0.4.1
+
+      # Harden the runner with the just-loaded allow-list.
+      - name: 'Harden runner (block)'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1  # v2.21.1
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
+
+      # Installing dependencies changes directory before the certificate
+      # is generated, so this checks that relative paths resolve against
+      # the starting directory rather than against wherever setup ends up.
+      - name: 'Setup go-httpbin with relative certificate paths'
+        id: httpbin-relative
+        uses: $/
+        with:
+          cert-file-path: 'relative-cert.pem'
+          key-file-path: 'relative-key.pem'
+          skip-readiness-check: 'true'
+
+      - name: 'Check relative certificate paths are made absolute'
+        env:
+          CERT_FILE: ${{ steps.httpbin-relative.outputs.cert-file }}
+          KEY_FILE: ${{ steps.httpbin-relative.outputs.key-file }}
+        run: |
+          for pair in "$CERT_FILE:relative-cert.pem" \
+            "$KEY_FILE:relative-key.pem"; do
+            path="${pair%:*}"
+            expected="$GITHUB_WORKSPACE/${pair##*:}"
+            if [[ "$path" != "$expected" ]]; then
+              echo "❌ Expected '$expected', got '$path'"
+              exit 1
+            fi
+            if [[ ! -s "$path" ]]; then
+              echo "❌ Missing or empty: $path"
+              exit 1
+            fi
+            echo "✅ $path"
+          done
+
+      - name: 'Setup go-httpbin with default certificate paths'
+        id: httpbin
+        uses: $/
+        with:
+          # Installed by the previous setup step
+          install-deps: 'false'
+          skip-readiness-check: 'true'
+
+      - name: 'Check default certificate paths'
+        # Outside the workspace, so a path that only resolves from the
+        # workspace root fails here
+        working-directory: ${{ runner.temp }}
+        env:
+          CA_CERT: ${{ steps.httpbin.outputs.ca-cert-path }}
+          CERT_FILE: ${{ steps.httpbin.outputs.cert-file }}
+          KEY_FILE: ${{ steps.httpbin.outputs.key-file }}
+        run: |
+          for path in "$CA_CERT" "$CERT_FILE" "$KEY_FILE"; do
+            if [[ "$path" != "$RUNNER_TEMP"/* ]]; then
+              echo "❌ Not an absolute path under RUNNER_TEMP: '$path'"
+              exit 1
+            fi
+            if [[ ! -s "$path" ]]; then
+              echo "❌ Missing or empty: $path"
+              exit 1
+            fi
+            echo "✅ $path"
+          done
+
+          if [[ "${MKCERT_CA_PATH:-}" != "$CA_CERT" ]]; then
+            echo "❌ MKCERT_CA_PATH '${MKCERT_CA_PATH:-}' differs from" \
+              "ca-cert-path '$CA_CERT'"
+            exit 1
+          fi
+          echo "✅ MKCERT_CA_PATH matches ca-cert-path"
+
+          key_mode=$(stat -c '%a' "$KEY_FILE")
+          if [[ "$key_mode" != "600" ]]; then
+            echo "❌ Private key has mode $key_mode, expected 600"
+            exit 1
+          fi
+          echo "✅ Private key has mode 600"
+
+          if [[ -e "$GITHUB_WORKSPACE/mkcert-ca.pem" ]]; then
+            echo "❌ The action wrote mkcert-ca.pem into the workspace"
+            exit 1
+          fi
+          echo "✅ No CA copy in the workspace"
+
+          # The action also installs the CA in the system store, so leave
+          # that out to prove the published CA file signed the certificate
+          openssl verify -no-CApath -no-CAstore -CAfile "$CA_CERT" \
+            "$CERT_FILE"
