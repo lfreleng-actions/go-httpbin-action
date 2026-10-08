@@ -102,15 +102,15 @@ outputs:
     value: ${{ steps.setup.outputs.host-gateway-ip }}
 
   ca-cert-path:
-    description: 'Path to the mkcert CA certificate'
+    description: 'Absolute path to the mkcert CA certificate'
     value: ${{ steps.setup.outputs.ca-cert-path }}
 
   cert-file:
-    description: 'Path to the SSL certificate file'
+    description: 'Absolute path to the SSL certificate file'
     value: ${{ steps.setup.outputs.cert-file }}
 
   key-file:
-    description: 'Path to the SSL private key file'
+    description: 'Absolute path to the SSL private key file'
     value: ${{ steps.setup.outputs.key-file }}
 
   protocol:
@@ -182,30 +182,33 @@ runs:
 
         echo "=== Setting up go-httpbin service ==="
 
-        # Create secure temporary directory for certificates with restricted permissions
-        SECURE_TEMP_DIR=$(mktemp -d)
-        chmod 700 "$SECURE_TEMP_DIR"
-        echo "Created secure temporary directory: $SECURE_TEMP_DIR"
+        # Create a per-invocation directory for the certificate, key and
+        # CA copy, with restricted permissions. It is not removed when this
+        # step exits, so the paths published as outputs stay valid for later
+        # steps; the runner empties RUNNER_TEMP at the end of the job.
+        CERTS_DIR=$(mktemp -d "${RUNNER_TEMP:-/tmp}/go-httpbin.XXXXXXXX")
+        chmod 700 "$CERTS_DIR"
+        echo "Created certificates directory: $CERTS_DIR"
+        CA_CERT_PATH="$CERTS_DIR/mkcert-ca.pem"
 
-        # Set up cleanup trap to ensure secure directory is removed on exit
-        cleanup() {
-          echo "Cleaning up secure temporary directory..."
-          rm -rf "$SECURE_TEMP_DIR"
-        }
-        trap cleanup EXIT INT TERM
-
-        # Set certificate paths - use secure temp dir by default
+        # Set certificate paths - use the certificates directory by default
         if [[ -n "${INPUTS_CERT_FILE_PATH}" ]]; then
           CERT_FILE_PATH="${INPUTS_CERT_FILE_PATH}"
         else
-          CERT_FILE_PATH="$SECURE_TEMP_DIR/localhost-cert.pem"
+          CERT_FILE_PATH="$CERTS_DIR/localhost-cert.pem"
         fi
 
         if [[ -n "${INPUTS_KEY_FILE_PATH}" ]]; then
           KEY_FILE_PATH="${INPUTS_KEY_FILE_PATH}"
         else
-          KEY_FILE_PATH="$SECURE_TEMP_DIR/localhost-key.pem"
+          KEY_FILE_PATH="$CERTS_DIR/localhost-key.pem"
         fi
+
+        # Resolve relative paths now: the dependency install below changes
+        # directory, and the outputs must not depend on the caller's
+        # working directory.
+        [[ "$CERT_FILE_PATH" == /* ]] || CERT_FILE_PATH="$PWD/$CERT_FILE_PATH"
+        [[ "$KEY_FILE_PATH" == /* ]] || KEY_FILE_PATH="$PWD/$KEY_FILE_PATH"
 
         echo "Certificate file path: $CERT_FILE_PATH"
         echo "Key file path: $KEY_FILE_PATH"
@@ -370,6 +373,8 @@ runs:
           # option parsing so domains are always treated as operands.
           mkcert -key-file "$KEY_FILE_PATH" \
             -cert-file "$CERT_FILE_PATH" -- "${cert_domains[@]}"
+          # mkcert does not change the mode of a key file that already exists
+          chmod 600 "$KEY_FILE_PATH"
 
           # Install the CA certificate in the system trust store
           CA_ROOT=$(mkcert -CAROOT)
@@ -380,13 +385,9 @@ runs:
             /usr/local/share/ca-certificates/mkcert-ca.crt
           sudo update-ca-certificates
 
-          # Copy CA to secure temp directory with proper permissions
-          cp "$CA_ROOT/rootCA.pem" "$SECURE_TEMP_DIR/mkcert-ca.pem"
-          chmod 644 "$SECURE_TEMP_DIR/mkcert-ca.pem"
-
-          # Also copy CA to workspace for Docker containers
-          cp "$CA_ROOT/rootCA.pem" "$GITHUB_WORKSPACE/mkcert-ca.pem"
-          chmod 644 "$GITHUB_WORKSPACE/mkcert-ca.pem"
+          # Copy the CA to the certificates directory for the outputs
+          cp "$CA_ROOT/rootCA.pem" "$CA_CERT_PATH"
+          chmod 644 "$CA_CERT_PATH"
 
           # Verify certificate files were created
           if [[ "${INPUTS_DEBUG}" == "true" ]]; then
@@ -573,7 +574,7 @@ runs:
         if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
           {
             echo "ca-cert-path<<${_delim}"
-            echo "mkcert-ca.pem"
+            echo "$CA_CERT_PATH"
             echo "${_delim}"
             echo "cert-file<<${_delim}"
             echo "$CERT_FILE_PATH"
@@ -603,7 +604,7 @@ runs:
         if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
           {
             echo "MKCERT_CA_PATH<<${_delim}"
-            echo "mkcert-ca.pem"
+            echo "$CA_CERT_PATH"
             echo "${_delim}"
           } >> "$GITHUB_ENV"
         fi
@@ -620,7 +621,7 @@ runs:
         echo "Host Gateway IP: $HOST_GATEWAY"
 
         if [[ "${INPUTS_SKIP_CERTIFICATE}" != "true" ]]; then
-          echo "CA Certificate: mkcert-ca.pem (in workspace)"
+          echo "CA Certificate: $CA_CERT_PATH"
         fi
       env:
         INPUTS_DEBUG: ${{ inputs.debug }}

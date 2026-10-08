@@ -13,3 +13,7 @@ paths:
       # output checks for those steps; drop it once a release with
       # kjanat/actionlint#200 is pinned (actions-template#253).
       - 'specifying action "\$/" in invalid format because path is missing'
+  .github/workflows/output-paths.yaml:
+    ignore:
+      # As above: the bare '$/' self-repository reference
+      - 'specifying action "\$/" in invalid format because path is missing'
