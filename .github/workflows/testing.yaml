@@ -11,11 +11,6 @@ on:
     branches: ['main']
   pull_request:
     branches: ['main']
-    paths:
-      - '**'
-      - '!.github/**'
-      - '!.*'
-      - '!tox.ini'
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -106,17 +101,13 @@ jobs:
             echo "✅"
           else
             echo "❌"
+            echo "Failed to connect via the published port on localhost!"
+            exit 1
           fi
 
-          # Test gateway IP (should work for container-to-container communication)
-          echo -n "Testing gateway IP (${STEPS_HTTPBIN_BASIC_OUTPUTS_HOST_GATEWAY_IP}:8080)... "
-          if curl -s -k --max-time 3 "https://${STEPS_HTTPBIN_BASIC_OUTPUTS_HOST_GATEWAY_IP}:8080/get" > /dev/null 2>&1; then
-            echo "✅"
-          else
-            echo "❌"
-          fi
-
-          # Test service URL (this is what the action outputs)
+          # Test service URL (this is what the action outputs). In the
+          # default network mode it is https://<gateway-ip>:<port>, so it
+          # also covers the gateway address.
           echo -n "Testing service URL (${STEPS_HTTPBIN_BASIC_OUTPUTS_SERVICE_URL})... "
           if curl -s -k --max-time 3 "${STEPS_HTTPBIN_BASIC_OUTPUTS_SERVICE_URL}/get" > /dev/null 2>&1; then
             echo "✅"
@@ -620,7 +611,7 @@ jobs:
           expected_http_code: '200'
           debug: 'true'
 
-      - name: 'Comprehensive Test - Redirect chain'
+      - name: 'Comprehensive Test - 503 status with retries'
         uses: lfreleng-actions/http-api-tool-docker@f95dcd6b3b5c0fd0db169a728ecbb9a414be3755 # v1.1.1
         with:
           url: '${{ steps.httpbin-comprehensive.outputs.service-url }}/status/503'
@@ -630,7 +621,6 @@ jobs:
           curl_timeout: '5'
           retries: '2'
           debug: 'true'
-        continue-on-error: true
 
       # Performance and load testing
       - name: 'Comprehensive Test - Performance check'
