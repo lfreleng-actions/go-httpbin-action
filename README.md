@@ -134,7 +134,7 @@ steps:
 | `skip-certificate`     | Skip SSL certificate generation                 | No       | `false`                        |
 | `docker-run-args`      | Extra Docker run arguments                      | No       | ``                             |
 | `install-deps`         | Whether to install dependencies                 | No       | `true`                         |
-| `go-version`           | Go version for building mkcert (if unavailable) | No       | `1.24`                         |
+| `go-version`           | Go version for building mkcert (if unavailable) | No       | `1.27.x`                       |
 | `skip-readiness-check` | Skip the built-in readiness check               | No       | `false`                        |
 
 <!-- markdownlint-enable MD013 -->
@@ -631,7 +631,7 @@ echo '--env=$PATH' | grep '\$[A-Za-z_]'
 
 - Linux or macOS runner (Windows is not supported)
 - Docker (available by default in GitHub Actions runners)
-- Go 1.18+ (will be automatically installed if not available or too old)
+- Go 1.26+ (installed automatically if absent or older)
 - Internet connectivity (for downloading dependencies and building mkcert from source)
 
 ## Security and Cross-Platform Support

@@ -81,7 +81,7 @@ inputs:
   go-version:
     description: 'Go version to install when needed to build mkcert'
     required: false
-    default: '1.24'
+    default: '1.27.x'
 
   skip-readiness-check:
     description: 'Skip the built-in readiness check'
@@ -122,6 +122,8 @@ runs:
   steps:
     - name: 'Check for Go installation'
       shell: bash
+      env:
+        INPUT_GO_VERSION: ${{ inputs.go-version }}
       run: |
         # Check for Go installation and version
         if ! command -v go &> /dev/null; then
@@ -136,17 +138,18 @@ runs:
           GO_VERSION=$(echo "$GO_VERSION_OUTPUT" | \
             grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | sed 's/go//')
 
-          # Check if Go version meets minimum requirements (1.18+)
+          # Check the runner's Go is on a supported release line (1.26+);
+          # older lines no longer receive security fixes.
           if [ -n "$GO_VERSION" ]; then
             MAJOR=$(echo "$GO_VERSION" | cut -d. -f1)
             MINOR=$(echo "$GO_VERSION" | cut -d. -f2)
 
             if [ "$MAJOR" -lt 1 ] || \
-              ([ "$MAJOR" -eq 1 ] && [ "$MINOR" -lt 18 ]); then
-              echo "Warning: Go version $GO_VERSION is older than" \
-                "recommended minimum (1.18)"
-              echo "Consider upgrading Go or the action will attempt to" \
-                "install a newer version"
+              ([ "$MAJOR" -eq 1 ] && [ "$MINOR" -lt 26 ]); then
+              echo "Warning: Go version $GO_VERSION is older than the" \
+                "oldest supported release (1.26)"
+              echo "The action will install Go ${INPUT_GO_VERSION}" \
+                "to build mkcert"
               echo "install_go=true" >> "$GITHUB_ENV"
             else
               echo "Go version $GO_VERSION meets requirements ✅"
@@ -159,6 +162,9 @@ runs:
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: ${{ inputs.go-version }}
+        # Resolve the newest patch of the requested line rather than an
+        # older one cached on the runner image
+        check-latest: true
 
     - name: 'Setup go-httpbin service'
       id: setup
