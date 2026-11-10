@@ -645,7 +645,7 @@ runs:
 
     - name: 'Wait for go-httpbin service readiness'
       if: ${{ inputs.skip-readiness-check != 'true' }}
-      uses: lfreleng-actions/http-api-tool-docker@f4ee5b9d44acced243a34b596eca50fc89b7e255  # v1.1.4
+      uses: lfreleng-actions/http-api-tool-docker@6ec54763f68da620a20b3ad4c78137f766f976f7  # v1.1.5
       with:
         url: '${{ steps.setup.outputs.service-url }}/get'
         service_name: 'go-httpbin readiness check'
