@@ -119,25 +119,33 @@ steps:
 
 <!-- markdownlint-disable MD013 -->
 
-| Input                  | Description                                     | Required | Default                        |
-| ---------------------- | ----------------------------------------------- | -------- | ------------------------------ |
-| `container-name`       | Name for the Docker container                   | No       | `go-httpbin`                   |
-| `port`                 | Port to expose the service on                   | No       | `8080`                         |
-| `image`                | Docker image to use                             | No       | `ghcr.io/mccutchen/go-httpbin` |
-| `image-tag`            | Tag of the Docker image                         | No       | `latest`                       |
-| `use-host-network`     | Use host networking (true/false)                | No       | `false`                        |
-| `wait-timeout`         | Wait time for service ready (retries)           | No       | `60`                           |
-| `debug`                | Enable debug output (true/false)                | No       | `false`                        |
-| `cert-file-path`       | SSL certificate file path                       | No       | `<certs>/localhost-cert.pem`   |
-| `key-file-path`        | SSL private key file path                       | No       | `<certs>/localhost-key.pem`    |
-| `certificate-domains`  | Extra domains for SSL certificate               | No       | ``                             |
-| `skip-certificate`     | Skip SSL certificate generation                 | No       | `false`                        |
-| `docker-run-args`      | Extra Docker run arguments                      | No       | ``                             |
-| `install-deps`         | Whether to install dependencies                 | No       | `true`                         |
-| `go-version`           | Go version for building mkcert (if unavailable) | No       | `1.27.x`                       |
-| `skip-readiness-check` | Skip the built-in readiness check               | No       | `false`                        |
+| Input                        | Description                                     | Required | Default                        |
+| ---------------------------- | ----------------------------------------------- | -------- | ------------------------------ |
+| `container-name`             | Name for the Docker container                   | No       | `go-httpbin`                   |
+| `port`                       | Port to expose the service on                   | No       | `8080`                         |
+| `image`                      | Docker image to use                             | No       | `ghcr.io/mccutchen/go-httpbin` |
+| `image-tag`                  | Tag of the Docker image                         | No       | `latest`                       |
+| `use-host-network`           | Use host networking (true/false)                | No       | `false`                        |
+| `wait-timeout`               | Wait time for service ready (retries)           | No       | `60`                           |
+| `debug`                      | Enable debug output (true/false)                | No       | `false`                        |
+| `cert-file-path`             | SSL certificate file path                       | No       | `<certs>/localhost-cert.pem`   |
+| `key-file-path`              | SSL private key file path                       | No       | `<certs>/localhost-key.pem`    |
+| `certificate-domains`        | Extra domains for SSL certificate               | No       | ``                             |
+| `skip-certificate`           | Skip SSL certificate generation                 | No       | `false`                        |
+| `docker-run-args`            | Extra Docker run arguments                      | No       | ``                             |
+| `install-deps`               | Whether to install dependencies                 | No       | `true`                         |
+| `apt-http-fallback-override` | Emergency HTTP fallback for apt                 | No       | ``                             |
+| `go-version`                 | Go version for building mkcert (if unavailable) | No       | `1.27.x`                       |
+| `skip-readiness-check`       | Skip the built-in readiness check               | No       | `false`                        |
 
 <!-- markdownlint-enable MD013 -->
+
+On Linux with `install-deps: 'true'`, the action switches the runner's
+apt sources to HTTPS for the rest of the caller's job. To pass the
+emergency HTTP fallback switch to `apt-https-enforce-action`, set
+`apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}` in the
+calling workflow. A value of `true` lets apt retry over HTTP if the
+HTTPS refresh fails.
 
 ## Outputs
 
@@ -152,6 +160,7 @@ steps:
 | `cert-file`       | Absolute path to the SSL certificate file          |
 | `key-file`        | Absolute path to the SSL private key file          |
 | `protocol`        | Protocol used (http or https)                      |
+| `apt-transport`   | Apt index refresh transport (empty if skipped)     |
 
 <!-- markdownlint-enable MD013 -->
 
