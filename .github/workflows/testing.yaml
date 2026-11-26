@@ -53,10 +53,31 @@ jobs:
         id: httpbin-basic
         uses: $/
         with:
+          apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}
           debug: 'true'
           # Temporarily decouple go-httpbin-action from http-api-tool-docker
           # This prevents problems with the second action breaking the first
           skip-readiness-check: 'true'
+
+      - name: 'Verify apt sources use HTTPS'
+        if: steps.httpbin-basic.outputs.apt-transport != 'http'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          sources=(/etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources)
+          if [[ -e /etc/apt/sources.list ]]; then
+            sources+=(/etc/apt/sources.list)
+          fi
+          if ((${#sources[@]})); then
+            awk '
+              { sub(/#.*/, "") }
+              /(^|[[:space:]])http:\/\// {
+                print FILENAME ":" FNR ": HTTP apt source remains"
+                found = 1
+              }
+              END { if (found) exit 1 }
+            ' "${sources[@]}"
+          fi
 
       - name: 'Debug the testing environment'
         run: |
@@ -212,6 +233,7 @@ jobs:
         id: httpbin-http
         uses: $/
         with:
+          apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}
           skip-certificate: 'true'
           debug: 'true'
 
@@ -262,6 +284,7 @@ jobs:
         id: httpbin-custom-port
         uses: $/
         with:
+          apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}
           port: '9090'
           debug: 'true'
           skip-readiness-check: 'true'
@@ -314,6 +337,7 @@ jobs:
         id: httpbin-host-network
         uses: $/
         with:
+          apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}
           use-host-network: 'true'
           debug: 'true'
 
@@ -362,6 +386,7 @@ jobs:
         id: httpbin-advanced
         uses: $/
         with:
+          apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}
           container-name: 'custom-httpbin'
           port: '8888'
           docker-run-args: >-
@@ -458,6 +483,7 @@ jobs:
         id: httpbin-comprehensive
         uses: $/
         with:
+          apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}
           debug: 'true'
           certificate-domains: 'api.example.com,test.local'
 
@@ -718,6 +744,7 @@ jobs:
         id: httpbin-error
         uses: $/
         with:
+          apt-http-fallback-override: ${{ vars.APT_HTTP_FALLBACK }}
           debug: 'true'
 
       - name: 'Error Handling Test - 404 Not Found'

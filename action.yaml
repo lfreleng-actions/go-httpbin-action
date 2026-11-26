@@ -78,6 +78,13 @@ inputs:
     required: false
     default: 'true'
 
+  apt-http-fallback-override:
+    description: >-
+      Emergency HTTP fallback for apt, passed to apt-https-enforce-action;
+      set it from the caller's APT_HTTP_FALLBACK variable.
+    required: false
+    default: ''
+
   go-version:
     description: 'Go version to install when needed to build mkcert'
     required: false
@@ -116,6 +123,10 @@ outputs:
   protocol:
     description: 'Protocol used (http or https)'
     value: ${{ steps.setup.outputs.protocol }}
+
+  apt-transport:
+    description: 'Transport used to refresh Linux apt indexes (https or http)'
+    value: ${{ steps.apt-https.outputs.transport }}
 
 runs:
   using: 'composite'
@@ -165,6 +176,30 @@ runs:
         # Resolve the newest patch of the requested line rather than an
         # older one cached on the runner image
         check-latest: true
+
+    - name: 'Check whether apt dependencies are needed'
+      id: apt-dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        INPUTS_INSTALL_DEPS: ${{ inputs.install-deps }}
+      run: |
+        if [[ "$INPUTS_INSTALL_DEPS" == 'true' ]]; then
+          echo 'needed=true' >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: 'Enforce HTTPS for apt'
+      id: apt-https
+      if: steps.apt-dependencies.outputs.needed == 'true'
+      # yamllint disable-line rule:line-length
+      uses: lfreleng-actions/apt-https-enforce-action@107838afeb79d37aeddb2b7f227f80f51df25180  # v0.0.1
+      with:
+        http_fallback_override: ${{ inputs.apt-http-fallback-override }}
+
+    - name: 'Install Linux dependencies'
+      if: steps.apt-dependencies.outputs.needed == 'true'
+      shell: bash
+      run: sudo apt-get install -y libnss3-tools git
 
     - name: 'Setup go-httpbin service'
       id: setup
@@ -232,12 +267,9 @@ runs:
         if [[ "${INPUTS_INSTALL_DEPS}" == "true" ]]; then
           echo "Installing dependencies..."
 
-          # Install platform-specific NSS tools
+          # Linux system dependencies were installed in a separate step.
           case "$(uname -s)" in
-            Linux*)
-              sudo apt-get update -qq
-              sudo apt-get install -y libnss3-tools git
-              ;;
+            Linux*) ;;
             Darwin*)
               # macOS - install nss if available via Homebrew (optional)
               if command -v brew &> /dev/null; then
